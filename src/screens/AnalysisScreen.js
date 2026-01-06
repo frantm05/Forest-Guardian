@@ -4,6 +4,7 @@ import { View, Text, Image, StyleSheet, ScrollView } from 'react-native';
 import ScreenWrapper from '../components/layout/ScreenWrapper';
 import CustomButton from '../components/common/CustomButton';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from '../constants/theme';
+import { saveRecord } from '../services/storageServices';
 import { ROUTES } from '../constants/routes';
 
 /**
@@ -31,8 +32,17 @@ const AnalysisScreen = ({ route, navigation }) => {
         return () => clearTimeout(timer);
     }, []);
 
-    const handleSaveAndExit = () => {
-        // Zde volání storageService.saveResult(...)
+    const handleSaveAndExit = async () => {
+        if (result) {
+            // Uložíme výsledek do paměti telefonu
+            await saveRecord({
+                label: result.label,
+                confidence: result.confidence,
+                description: result.description,
+                severity: result.severity,
+                imageUri: imageUri // Můžeme uložit i cestu k fotce
+            });
+        }
         navigation.popToTop(); // Návrat na Home
     };
 
