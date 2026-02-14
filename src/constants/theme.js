@@ -1,34 +1,27 @@
 // src/constants/theme.js
 
 export const COLORS = {
-  // Primární paleta (Forest Modern)
-  primary: '#2D5A27',    // Deep Forest Green - hlavní akce, hlavičky
-  primaryDark: '#1B3E18', // Tmavší varianta pro stavy onPress
-  secondary: '#8D6E63',  // Bark Brown - sekundární prvky, ikony
-  accent: '#E65100',     // Alert Orange - pro detekci kůrovce (vysoké riziko)
+  // Primární barvy z UI designu
+  primary: '#166534',    // green-800 - Hlavní lesní zelená
+  primaryLight: '#22c55e', // green-500 - Jasná zelená pro akcenty
+  primaryDark: '#052e16', // green-950 - Tmavé pozadí
   
-  // Neutrální tóny
-  background: '#F8F9FA', // Off-white - mnohem příjemnější než čistá bílá
-  surface: '#FFFFFF',    // Karty
-  surfaceVariant: '#F0F4F0', // Jemně nazelenalé pozadí pro aktivní prvky
+  // Sekundární
+  secondary: '#f4f4f5',  // zinc-100 - Pozadí karet
+  accent: '#eab308',     // yellow-500 - Varování/Pozor
+  destructive: '#ef4444', // red-500 - Kritický stav
+
+  // Neutrální (Zinc paleta)
+  background: '#ffffff', // Čistá bílá
+  surface: '#ffffff',
+  border: '#e4e4e7',     // zinc-200 - Jemné ohraničení
   
   // Text
   text: {
-    primary: '#1A1C19',  // Téměř černá (Soft Black)
-    secondary: '#424940', // Tmavě šedá s nádechem zelené
-    tertiary: '#72796F',  // Popisky
-    inverse: '#FFFFFF',
+    primary: '#09090b',  // zinc-950 - Hlavní text
+    secondary: '#71717a', // zinc-500 - Popisky
+    inverse: '#ffffff',   // Text na tmavém pozadí
   },
-  
-  // Stavy
-  status: {
-    safe: '#2E7D32',
-    warning: '#F9A825',
-    danger: '#C62828',
-  },
-  
-  // Overlay (pro kameru)
-  overlay: 'rgba(0, 0, 0, 0.65)',
 };
 
 export const SPACING = {
@@ -36,40 +29,43 @@ export const SPACING = {
 };
 
 export const RADIUS = {
-  s: 8,   // Menší prvky
-  m: 16,  // Karty a tlačítka (moderní standard je kulatější)
-  l: 24,  // Modaly
+  s: 6,   // Smal radius (badges)
+  m: 12,  // Medium radius (buttons, inputs)
+  l: 16,  // Large radius (cards)
+  xl: 24, // Extra large (modals)
   full: 999,
 };
 
+// Moderní stíny ve stylu "Shadcn/Tailwind"
 export const SHADOWS = {
-  light: {
-    shadowColor: "#2D5A27",
-    shadowOffset: { width: 0, height: 4 },
+  sm: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 2,
     elevation: 2,
   },
-  medium: {
+  md: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowRadius: 6,
     elevation: 4,
   },
-  heavy: { // Pro plovoucí tlačítka (FAB)
-    shadowColor: "#2D5A27",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
+  lg: {
+    shadowColor: "#166534", // Barevný stín pro primary prvky
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
   }
 };
 
 export const TYPOGRAPHY = {
-  header: { fontSize: 28, fontWeight: '700', letterSpacing: -0.5, color: COLORS.text.primary },
-  subHeader: { fontSize: 20, fontWeight: '600', color: COLORS.text.primary },
+  h1: { fontSize: 32, fontWeight: '700', color: COLORS.text.primary, letterSpacing: -0.5 },
+  h2: { fontSize: 24, fontWeight: '600', color: COLORS.text.primary, letterSpacing: -0.5 },
+  h3: { fontSize: 20, fontWeight: '600', color: COLORS.text.primary },
   body: { fontSize: 16, lineHeight: 24, color: COLORS.text.secondary },
-  caption: { fontSize: 13, color: COLORS.text.tertiary },
-  button: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
+  label: { fontSize: 14, fontWeight: '500', color: COLORS.text.primary },
+  caption: { fontSize: 12, color: COLORS.text.secondary },
 };

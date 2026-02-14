@@ -1,165 +1,135 @@
 // src/screens/CameraScreen.js
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, Image } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera'; // POZOR: Expo SDK 51 používá CameraView
+import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { COLORS, SPACING, RADIUS, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+//import { BlurView } from 'expo-blur'; // Pro "glassmorphism" efekt (volitelné, fallback je barva)
+
+import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
 import { TREE_TYPES, DETECTION_MODES } from '../services/aiServices';
-import ScreenWrapper from '../components/layout/ScreenWrapper';
-
-// Ikonky (můžeš použít @expo/vector-icons, zde text pro jednoduchost)
-const Icons = {
-  Flip: '🔄',
-  Flash: '⚡',
-  Close: '✕',
-  Bug: '🐞',
-  Pattern: '〰️',
-  Tree: '🌲'
-};
 
 const CameraScreen = ({ navigation }) => {
   const [permission, requestPermission] = useCameraPermissions();
-  const [cameraRef, setCameraRef] = useState(null);
+  const cameraRef = useRef(null);
   const [selectedTree, setSelectedTree] = useState(TREE_TYPES[0]);
   const [mode, setMode] = useState(DETECTION_MODES.OBJECT);
-  const [isTreeModalVisible, setTreeModalVisible] = useState(false);
   const [flash, setFlash] = useState('off');
+  const [showTreeModal, setShowTreeModal] = useState(false);
 
   if (!permission) return <View />;
   if (!permission.granted) {
     return (
-      <ScreenWrapper>
-        <View style={styles.permissionContainer}>
-          <Text style={TYPOGRAPHY.subHeader}>Potřebujeme přístup ke kameře</Text>
-          <Text style={styles.permissionText}>Pro analýzu škůdců je nutné pořídit snímek.</Text>
-          <TouchableOpacity style={styles.btnPrimary} onPress={requestPermission}>
-            <Text style={styles.btnText}>Povolit Kameru</Text>
-          </TouchableOpacity>
-        </View>
-      </ScreenWrapper>
+      <View style={styles.center}>
+        <Text style={TYPOGRAPHY.body}>Potřebujeme přístup ke kameře.</Text>
+        <TouchableOpacity onPress={requestPermission} style={styles.permButton}>
+          <Text style={{color: 'white'}}>Povolit</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
   const takePicture = async () => {
-    if (cameraRef) {
-      try {
-        const photo = await cameraRef.takePictureAsync({ quality: 0.7 });
-        navigation.navigate(ROUTES.ANALYSIS, { 
-          imageUri: photo.uri,
-          mode: mode,
-          treeType: selectedTree.id
-        });
-      } catch (error) {
-        console.log(error);
-      }
+    if (cameraRef.current) {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      navigation.navigate(ROUTES.ANALYSIS, { imageUri: photo.uri, mode, treeType: selectedTree.id });
     }
   };
 
-  // Komponenta pro výběr stromu (Modal)
-  const renderTreeModal = () => (
-    <Modal visible={isTreeModalVisible} transparent animationType="slide">
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Vyberte druh dřeviny</Text>
-          <FlatList 
-            data={TREE_TYPES}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[styles.treeItem, selectedTree.id === item.id && styles.treeItemActive]}
-                onPress={() => {
-                  setSelectedTree(item);
-                  setTreeModalVisible(false);
-                }}
-              >
-                <Text style={styles.treeEmoji}>🌲</Text>
-                <Text style={[styles.treeLabel, selectedTree.id === item.id && {color: COLORS.primary}]}>
-                  {item.label}
-                </Text>
-                {selectedTree.id === item.id && <Text style={{color: COLORS.primary}}>✓</Text>}
-              </TouchableOpacity>
-            )}
-          />
-          <TouchableOpacity 
-            style={styles.modalCloseBtn}
-            onPress={() => setTreeModalVisible(false)}
-          >
-            <Text style={styles.btnTextSecondary}>Zavřít</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
     <View style={styles.container}>
-      <CameraView 
-        style={styles.camera} 
-        facing="back"
-        flash={flash}
-        ref={(ref) => setCameraRef(ref)}
-      >
-        <SafeAreaView style={styles.uiContainer}>
+      <StatusBar barStyle="light-content" />
+      <CameraView style={styles.camera} ref={cameraRef} flash={flash}>
+        <SafeAreaView style={styles.overlay}>
           
-          {/* TOP BAR: Zavřít a Blesk */}
-          <View style={styles.topBar}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton}>
-              <Text style={styles.iconText}>{Icons.Close}</Text>
+          {/* HEADER BAR */}
+          <View style={styles.headerBar}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+              <Ionicons name="close" size={24} color="white" />
             </TouchableOpacity>
+            
             <TouchableOpacity 
-              onPress={() => setFlash(f => f === 'off' ? 'on' : 'off')} 
-              style={[styles.iconButton, flash === 'on' && styles.activeIcon]}
+              style={styles.treeSelector}
+              onPress={() => setShowTreeModal(true)}
             >
-              <Text style={styles.iconText}>{Icons.Flash}</Text>
+              <MaterialCommunityIcons name="tree-outline" size={16} color="white" />
+              <Text style={styles.treeText}>{selectedTree.label.split('(')[0]}</Text>
+              <Ionicons name="chevron-down" size={12} color="white" />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setFlash(f => f === 'off' ? 'on' : 'off')} style={styles.iconBtn}>
+              <Ionicons name={flash === 'on' ? "flash" : "flash-off"} size={20} color="white" />
             </TouchableOpacity>
           </View>
 
-          {/* MIDDLE: Indikátor stromu */}
-          <TouchableOpacity style={styles.treeSelector} onPress={() => setTreeModalVisible(true)}>
-            <Text style={styles.treeSelectorIcon}>{Icons.Tree}</Text>
-            <View>
-              <Text style={styles.treeSelectorLabel}>Analyzovaná dřevina</Text>
-              <Text style={styles.treeSelectorValue}>{selectedTree.label.split('(')[0].trim()}</Text>
-            </View>
-            <Text style={styles.chevron}>▼</Text>
-          </TouchableOpacity>
+          {/* FOCUS FRAME */}
+          <View style={styles.focusContainer}>
+            <View style={[styles.corner, styles.tl]} />
+            <View style={[styles.corner, styles.tr]} />
+            <View style={[styles.corner, styles.bl]} />
+            <View style={[styles.corner, styles.br]} />
+            <Text style={styles.hintText}>
+              {mode === DETECTION_MODES.OBJECT ? "Zaměřte celého škůdce" : "Zaměřte detail požerku"}
+            </Text>
+          </View>
 
-          {/* BOTTOM: Ovládání */}
-          <View style={styles.bottomControls}>
-            
-            {/* Přepínač módů */}
-            <View style={styles.modeSwitch}>
+          {/* BOTTOM CONTROLS */}
+          <View style={styles.bottomBar}>
+            {/* Mode Switcher */}
+            <View style={styles.modeSwitcher}>
               <TouchableOpacity 
-                style={[styles.modeBtn, mode === DETECTION_MODES.OBJECT && styles.modeBtnActive]}
+                style={[styles.modeBtn, mode === DETECTION_MODES.OBJECT && styles.activeMode]}
                 onPress={() => setMode(DETECTION_MODES.OBJECT)}
               >
-                <Text style={styles.modeIcon}>{Icons.Bug}</Text>
-                <Text style={[styles.modeText, mode === DETECTION_MODES.OBJECT && styles.modeTextActive]}>
-                  Škůdce
-                </Text>
+                <Text style={[styles.modeText, mode === DETECTION_MODES.OBJECT && styles.activeModeText]}>Škůdce</Text>
               </TouchableOpacity>
-              
               <TouchableOpacity 
-                style={[styles.modeBtn, mode === DETECTION_MODES.SEGMENTATION && styles.modeBtnActive]}
+                style={[styles.modeBtn, mode === DETECTION_MODES.SEGMENTATION && styles.activeMode]}
                 onPress={() => setMode(DETECTION_MODES.SEGMENTATION)}
               >
-                <Text style={styles.modeIcon}>{Icons.Pattern}</Text>
-                <Text style={[styles.modeText, mode === DETECTION_MODES.SEGMENTATION && styles.modeTextActive]}>
-                  Požerek
-                </Text>
+                <Text style={[styles.modeText, mode === DETECTION_MODES.SEGMENTATION && styles.activeModeText]}>Požerek</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Spoušť */}
-            <TouchableOpacity onPress={takePicture} style={styles.captureBtnOuter}>
-              <View style={styles.captureBtnInner} />
-            </TouchableOpacity>
-
+            {/* Shutter */}
+            <View style={styles.shutterRow}>
+              <View style={{width: 40}} /> 
+              <TouchableOpacity onPress={takePicture} style={styles.shutterOuter}>
+                <View style={styles.shutterInner} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.galleryBtn}>
+                 <Ionicons name="images-outline" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
           </View>
+
         </SafeAreaView>
       </CameraView>
-      {renderTreeModal()}
+
+      {/* TREE SELECTION MODAL */}
+      <Modal visible={showTreeModal} transparent animationType="slide">
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Vyberte dřevinu</Text>
+            {TREE_TYPES.map(tree => (
+              <TouchableOpacity 
+                key={tree.id} 
+                style={[styles.treeOption, selectedTree.id === tree.id && styles.selectedOption]}
+                onPress={() => { setSelectedTree(tree); setShowTreeModal(false); }}
+              >
+                <Text style={[styles.treeOptionText, selectedTree.id === tree.id && {color: COLORS.primary}]}>
+                  {tree.label}
+                </Text>
+                {selectedTree.id === tree.id && <Ionicons name="checkmark" size={20} color={COLORS.primary} />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.closeModal} onPress={() => setShowTreeModal(false)}>
+              <Text style={styles.closeText}>Zrušit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -167,64 +137,43 @@ const CameraScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'black' },
   camera: { flex: 1 },
-  uiContainer: { flex: 1, justifyContent: 'space-between', padding: SPACING.m },
+  overlay: { flex: 1, justifyContent: 'space-between' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACING.s },
-  iconButton: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center'
-  },
-  iconText: { fontSize: 20, color: 'white' },
-  activeIcon: { backgroundColor: COLORS.accent },
-  
-  treeSelector: {
-    alignSelf: 'center', flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)', padding: SPACING.s, borderRadius: RADIUS.l,
-    marginTop: SPACING.l
-  },
-  treeSelectorIcon: { fontSize: 24, marginRight: SPACING.s },
-  treeSelectorLabel: { color: '#ccc', fontSize: 10, textTransform: 'uppercase' },
-  treeSelectorValue: { color: 'white', fontWeight: 'bold' },
-  chevron: { color: 'white', marginLeft: SPACING.s, fontSize: 12 },
+  headerBar: { flexDirection: 'row', justifyContent: 'space-between', padding: SPACING.m, alignItems: 'center' },
+  iconBtn: { width: 40, height: 40, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: RADIUS.full, justifyContent: 'center', alignItems: 'center' },
+  treeSelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: RADIUS.full, gap: 8 },
+  treeText: { color: 'white', fontWeight: '600', fontSize: 14 },
 
-  bottomControls: { alignItems: 'center', paddingBottom: SPACING.l },
-  
-  modeSwitch: {
-    flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.5)', 
-    borderRadius: RADIUS.full, padding: 4, marginBottom: SPACING.xl
-  },
-  modeBtn: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16,
-    borderRadius: RADIUS.full
-  },
-  modeBtnActive: { backgroundColor: COLORS.surface },
-  modeIcon: { marginRight: 6, fontSize: 16 },
-  modeText: { color: '#ccc', fontWeight: '600' },
-  modeTextActive: { color: COLORS.text.primary },
+  focusContainer: { flex: 1, margin: 40, justifyContent: 'center', alignItems: 'center' },
+  corner: { position: 'absolute', width: 20, height: 20, borderColor: 'white', borderWidth: 3 },
+  tl: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0 },
+  tr: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0 },
+  bl: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0 },
+  br: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0 },
+  hintText: { color: 'rgba(255,255,255,0.8)', marginTop: 260, fontSize: 12, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4 },
 
-  captureBtnOuter: {
-    width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: 'white',
-    justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium
-  },
-  captureBtnInner: {
-    width: 64, height: 64, borderRadius: 32, backgroundColor: 'white'
-  },
-  
-  // Modal styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: RADIUS.l, borderTopRightRadius: RADIUS.l, padding: SPACING.l },
-  modalTitle: { ...TYPOGRAPHY.subHeader, marginBottom: SPACING.m, textAlign: 'center' },
-  treeItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.m, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  treeItemActive: { backgroundColor: COLORS.surfaceVariant },
-  treeEmoji: { fontSize: 24, marginRight: SPACING.m },
-  treeLabel: { ...TYPOGRAPHY.body, flex: 1 },
-  modalCloseBtn: { marginTop: SPACING.l, alignItems: 'center', padding: SPACING.m },
-  btnTextSecondary: { color: COLORS.text.secondary, fontWeight: 'bold' },
-  
-  permissionContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl },
-  permissionText: { ...TYPOGRAPHY.body, textAlign: 'center', marginVertical: SPACING.m },
-  btnPrimary: { backgroundColor: COLORS.primary, paddingVertical: SPACING.m, paddingHorizontal: SPACING.xl, borderRadius: RADIUS.m },
-  btnText: { color: 'white', fontWeight: 'bold' }
+  bottomBar: { padding: SPACING.l, alignItems: 'center', gap: SPACING.l, backgroundColor: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)' },
+  modeSwitcher: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: RADIUS.full, padding: 4 },
+  modeBtn: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: RADIUS.full },
+  activeMode: { backgroundColor: COLORS.primary },
+  modeText: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
+  activeModeText: { color: 'white' },
+
+  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
+  shutterOuter: { width: 72, height: 72, borderRadius: RADIUS.full, borderWidth: 4, borderColor: 'white', justifyContent: 'center', alignItems: 'center' },
+  shutterInner: { width: 56, height: 56, borderRadius: RADIUS.full, backgroundColor: 'white' },
+  galleryBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.l },
+  modalTitle: { ...TYPOGRAPHY.h3, marginBottom: SPACING.m, textAlign: 'center' },
+  treeOption: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.m, borderBottomWidth: 1, borderColor: COLORS.border },
+  treeOptionText: { fontSize: 16, color: COLORS.text.primary },
+  selectedOption: { backgroundColor: '#f0fdf4' },
+  closeModal: { marginTop: SPACING.l, alignItems: 'center', padding: SPACING.m },
+  closeText: { color: COLORS.text.secondary, fontWeight: '600' },
+  permButton: { marginTop: 20, backgroundColor: COLORS.primary, padding: 10, borderRadius: 8 }
 });
 
 export default CameraScreen;
