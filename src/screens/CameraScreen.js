@@ -1,6 +1,6 @@
 // src/screens/CameraScreen.js
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert, ScrollView } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert, ScrollView, Animated, LayoutAnimation } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -27,12 +27,30 @@ const CameraScreen = ({ navigation }) => {
   const [showTreeModal, setShowTreeModal] = useState(false);
   const [isTakingPicture, setIsTakingPicture] = useState(false);
 
+  // Animace pro mode switcher
+  const modeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(modeAnim, {
+      toValue: mode === DETECTION_MODES.OBJECT ? 0 : 1,
+      useNativeDriver: false,
+      friction: 8,
+      tension: 60,
+    }).start();
+  }, [mode]);
+
   const toggleFacing = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setFacing(f => f === 'back' ? 'front' : 'back');
     // Blesk funguje pouze na zadní kameře
     if (facing === 'back' && flash === 'on') {
       setFlash('off');
     }
+  };
+
+  const switchMode = (newMode) => {
+    if (newMode === mode) return;
+    setMode(newMode);
   };
 
   if (!permission) return <View style={styles.container} />;
@@ -113,22 +131,16 @@ const CameraScreen = ({ navigation }) => {
               <Ionicons name="chevron-down" size={12} color="white" />
             </TouchableOpacity>
 
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity onPress={toggleFacing} style={styles.glassCircle}>
-                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-                <Ionicons name="camera-reverse-outline" size={20} color="white" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={() => {
-                  if (facing === 'front') return; // Blesk nefunguje na přední kameře
-                  setFlash(f => f === 'off' ? 'on' : 'off');
-                }} 
-                style={[styles.glassCircle, facing === 'front' && { opacity: 0.4 }]}
-              >
-                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-                <Ionicons name={flash === 'on' ? "flash" : "flash-off"} size={20} color={flash === 'on' ? '#FBBF24' : 'white'} />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity 
+              onPress={() => {
+                if (facing === 'front') return;
+                setFlash(f => f === 'off' ? 'on' : 'off');
+              }} 
+              style={[styles.glassCircle, facing === 'front' && { opacity: 0.4 }]}
+            >
+              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+              <Ionicons name={flash === 'on' ? "flash" : "flash-off"} size={20} color={flash === 'on' ? '#FBBF24' : 'white'} />
+            </TouchableOpacity>
           </View>
 
           {/* FOCUS FRAME */}
@@ -149,30 +161,59 @@ const CameraScreen = ({ navigation }) => {
 
           {/* BOTTOM CONTROLS */}
           <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={styles.bottomBar}>
-            {/* Mode Switcher */}
+            {/* Mode Switcher with animated indicator */}
             <View style={styles.modeSwitcher}>
               <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+              <Animated.View 
+                style={[
+                  styles.modeIndicator, 
+                  { 
+                    backgroundColor: colors.primary,
+                    left: modeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['2%', '50%'],
+                    }),
+                  }
+                ]} 
+              />
               <TouchableOpacity 
-                style={[styles.modeBtn, mode === DETECTION_MODES.OBJECT && { backgroundColor: colors.primary }]}
-                onPress={() => setMode(DETECTION_MODES.OBJECT)}
+                style={styles.modeBtn}
+                onPress={() => switchMode(DETECTION_MODES.OBJECT)}
+                activeOpacity={0.7}
               >
-                <Text style={[styles.modeText, mode === DETECTION_MODES.OBJECT && styles.activeModeText]}>
+                <Animated.Text style={[
+                  styles.modeText, 
+                  { color: modeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['rgba(255,255,255,1)', 'rgba(255,255,255,0.5)'],
+                  })}
+                ]}>
                   {t(lang, 'pestMode')}
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.modeBtn, mode === DETECTION_MODES.SEGMENTATION && { backgroundColor: colors.primary }]}
-                onPress={() => setMode(DETECTION_MODES.SEGMENTATION)}
+                style={styles.modeBtn}
+                onPress={() => switchMode(DETECTION_MODES.SEGMENTATION)}
+                activeOpacity={0.7}
               >
-                <Text style={[styles.modeText, mode === DETECTION_MODES.SEGMENTATION && styles.activeModeText]}>
+                <Animated.Text style={[
+                  styles.modeText, 
+                  { color: modeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['rgba(255,255,255,0.5)', 'rgba(255,255,255,1)'],
+                  })}
+                ]}>
                   {t(lang, 'damageMode')}
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
             </View>
 
             {/* Shutter */}
             <View style={styles.shutterRow}>
-              <View style={{ width: 40 }} /> 
+              <TouchableOpacity onPress={toggleFacing} style={styles.glassCircle}>
+                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+                <Ionicons name="camera-reverse-outline" size={22} color="white" />
+              </TouchableOpacity>
               <TouchableOpacity 
                 onPress={takePicture} 
                 style={[styles.shutterOuter, isTakingPicture && { opacity: 0.5 }]}
@@ -183,7 +224,7 @@ const CameraScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity style={styles.glassCircle} onPress={pickFromGallery}>
                  <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-                 <Ionicons name="images-outline" size={24} color="white" />
+                 <Ionicons name="images-outline" size={22} color="white" />
               </TouchableOpacity>
             </View>
           </LinearGradient>
@@ -275,10 +316,10 @@ const styles = StyleSheet.create({
   hintText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, paddingVertical: 6, paddingHorizontal: 12 },
 
   bottomBar: { padding: SPACING.l, alignItems: 'center', gap: SPACING.l },
-  modeSwitcher: { flexDirection: 'row', borderRadius: RADIUS.full, padding: 4, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)' },
-  modeBtn: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: RADIUS.full },
-  modeText: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
-  activeModeText: { color: 'white' },
+  modeSwitcher: { flexDirection: 'row', borderRadius: RADIUS.full, padding: 4, paddingLeft: 0, overflow: 'hidden', borderWidth: 1, maxWidth: 215, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', position: 'relative' },
+  modeIndicator: { position: 'absolute', top: 4, width: '50%', height: '100%', borderRadius: RADIUS.full },
+  modeBtn: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: RADIUS.full, flex: 1, alignItems: 'center', zIndex: 1 },
+  modeText: { fontSize: 13, fontWeight: '600' },
 
   shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
   shutterOuter: { width: 72, height: 72, borderRadius: RADIUS.full, borderWidth: 4, borderColor: 'white', justifyContent: 'center', alignItems: 'center' },
