@@ -5,6 +5,7 @@ const STORAGE_KEY = '@forest_guardian_history';
 
 /**
  * Načte celou historii detekcí.
+ * @returns {Promise<Array>}
  */
 export const getHistory = async () => {
     try {
@@ -23,7 +24,6 @@ export const getHistory = async () => {
 export const saveRecord = async (newRecord) => {
     try {
         const currentHistory = await getHistory();
-        // Přidáme nové na začátek pole
         const updatedHistory = [
             { id: Date.now().toString(), date: new Date().toISOString(), ...newRecord },
             ...currentHistory
@@ -35,12 +35,26 @@ export const saveRecord = async (newRecord) => {
 };
 
 /**
- * Vymaže celou historii (pro debug nebo úklid).
+ * Smaže jeden záznam z historie dle ID.
+ * @param {string} id - ID záznamu ke smazání
+ */
+export const deleteRecord = async (id) => {
+    try {
+        const currentHistory = await getHistory();
+        const updatedHistory = currentHistory.filter(item => item.id !== id);
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedHistory));
+    } catch (e) {
+        console.error('Chyba při mazání záznamu:', e);
+    }
+};
+
+/**
+ * Vymaže celou historii.
  */
 export const clearHistory = async () => {
     try {
         await AsyncStorage.removeItem(STORAGE_KEY);
     } catch (e) {
-        console.error(e);
+        console.error('Chyba při mazání historie:', e);
     }
 };

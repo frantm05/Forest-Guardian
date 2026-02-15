@@ -12,10 +12,14 @@ export const DETECTION_MODES = {
  * Podporované druhy stromů
  */
 export const TREE_TYPES = [
-  { id: 'spruce', label: 'Smrk ztepilý (Picea abies)', defaultMode: DETECTION_MODES.OBJECT },
-  { id: 'pine', label: 'Borovice lesní (Pinus sylvestris)', defaultMode: DETECTION_MODES.SEGMENTATION },
-  { id: 'oak', label: 'Dub (Quercus)', defaultMode: DETECTION_MODES.OBJECT },
-  { id: 'unknown', label: 'Neznámý druh / Automaticky', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'spruce', labelKey: 'treeSpruce', icon: '🌲', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'pine', labelKey: 'treePine', icon: '🌲', defaultMode: DETECTION_MODES.SEGMENTATION },
+  { id: 'oak', labelKey: 'treeOak', icon: '🌳', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'beech', labelKey: 'treeBeech', icon: '🌳', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'birch', labelKey: 'treeBirch', icon: '🌳', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'larch', labelKey: 'treeLarch', icon: '🌲', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'fir', labelKey: 'treeFir', icon: '🌲', defaultMode: DETECTION_MODES.OBJECT },
+  { id: 'unknown', labelKey: 'treeUnknown', icon: '🔍', defaultMode: DETECTION_MODES.OBJECT },
 ];
 
 /**
@@ -41,19 +45,17 @@ export const analyzeImage = async (imageUri, mode, treeType) => {
           type: 'detection',
           confidence: 0.94,
           label: 'Lýkožrout smrkový',
-          box: { x: 50, y: 100, w: 200, h: 200 }, // Souřadnice pro vykreslení čtverce
+          box: { x: 50, y: 100, w: 200, h: 200 },
           severity: 'high',
-          recommendation: 'Okamžitá asanace napadeného stromu.',
           treeContext: treeType
         });
       } else {
         resolve({
           type: 'segmentation',
           confidence: 0.88,
-          label: 'Požerky (Matečné chodby)',
-          mask: 'base64_string_of_mask...', // V reálu zde bude maska
+          label: 'Požerky',
+          mask: 'base64_string_of_mask...',
           severity: 'medium',
-          recommendation: 'Sledovat vývoj, zkontrolovat výletové otvory.',
           treeContext: treeType
         });
       }

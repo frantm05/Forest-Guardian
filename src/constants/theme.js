@@ -11,6 +11,12 @@ export const COLORS = {
   accent: '#eab308',     // yellow-500 - Varování/Pozor
   destructive: '#ef4444', // red-500 - Kritický stav
 
+  // Stavové barvy
+  status: {
+    error: '#ef4444',   // red-500
+    success: '#22c55e', // green-500
+  },
+
   // Neutrální (Zinc paleta)
   background: '#ffffff', // Čistá bílá
   surface: '#ffffff',
@@ -20,7 +26,28 @@ export const COLORS = {
   text: {
     primary: '#09090b',  // zinc-950 - Hlavní text
     secondary: '#71717a', // zinc-500 - Popisky
+    tertiary: '#a1a1aa',  // zinc-400 - Terciární text (ikony, placeholdery)
     inverse: '#ffffff',   // Text na tmavém pozadí
+  },
+};
+
+// Dark mode barvy
+export const DARK_COLORS = {
+  ...COLORS,
+  primary: '#22c55e',
+  primaryLight: '#4ade80',
+  primaryDark: '#052e16',
+
+  secondary: '#27272a',   // zinc-800
+  background: '#09090b',  // zinc-950
+  surface: '#18181b',     // zinc-900
+  border: '#3f3f46',      // zinc-700
+
+  text: {
+    primary: '#fafafa',   // zinc-50
+    secondary: '#a1a1aa', // zinc-400
+    tertiary: '#71717a',  // zinc-500
+    inverse: '#09090b',   // zinc-950
   },
 };
 
@@ -69,3 +96,10 @@ export const TYPOGRAPHY = {
   label: { fontSize: 14, fontWeight: '500', color: COLORS.text.primary },
   caption: { fontSize: 12, color: COLORS.text.secondary },
 };
+
+/**
+ * Vrátí palette barev podle dark mode stavu.
+ * @param {boolean} darkMode
+ * @returns {typeof COLORS}
+ */
+export const getColors = (darkMode) => darkMode ? DARK_COLORS : COLORS;

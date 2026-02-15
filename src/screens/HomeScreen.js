@@ -1,122 +1,224 @@
 // src/screens/HomeScreen.js
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { COLORS, SPACING, RADIUS, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import { SPACING, RADIUS, SHADOWS } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
+import { getHistory } from '../services/storageServices';
+import { useSettings } from '../context/SettingsContext';
+import { t } from '../utils/i18n';
 
 const HomeScreen = ({ navigation }) => {
+  const { settings, colors } = useSettings();
+  const lang = settings.language;
+  const dark = settings.darkMode;
+
+  const [totalScans, setTotalScans] = useState(0);
+  const [issuesCount, setIssuesCount] = useState(0);
+  const [lastScan, setLastScan] = useState(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+      const loadStats = async () => {
+        try {
+          const history = await getHistory();
+          if (isActive) {
+            setTotalScans(history.length);
+            const issues = history.filter(h => h.severity === 'high' || h.severity === 'medium');
+            setIssuesCount(issues.length);
+            setLastScan(history.length > 0 ? history[0] : null);
+          }
+        } catch (e) {
+          console.error('Chyba při načítání statistik:', e);
+        }
+      };
+      loadStats();
+      return () => { isActive = false; };
+    }, [])
+  );
+
+  const navigateToCamera = useCallback(() => {
+    navigation.navigate(ROUTES.CAMERA);
+  }, [navigation]);
+
+  const initials = settings.name
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .toUpperCase();
+
+  const getSeverityLabel = (severity) => {
+    if (severity === 'high') return t(lang, 'highRisk');
+    if (severity === 'medium') return t(lang, 'mediumRisk');
+    return t(lang, 'lowRisk');
+  };
+
+  const bg = dark ? colors.background : '#F5F6F4';
+  const cardBg = dark ? colors.surface : 'white';
+  const textPrimary = colors.text.primary;
+  const textSecondary = colors.text.secondary;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>  
+      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} backgroundColor={bg} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* HEADER */}
         <View style={styles.header}>
           <View>
-            <Text style={TYPOGRAPHY.caption}>Dobrý den, Matěji</Text>
-            <Text style={TYPOGRAPHY.h2}>Forest Guardian</Text>
+            <Text style={[styles.captionText, { color: textSecondary }]}>{t(lang, 'welcomeBack')}</Text>
+            <Text style={[styles.h2Text, { color: textPrimary }]}>Forest Guardian</Text>
           </View>
-          <TouchableOpacity style={styles.profileButton}>
-            <Image 
-              source={{ uri: 'https://ui-avatars.com/api/?name=Matej+Frantik&background=166534&color=fff' }} 
-              style={styles.avatar} 
-            />
+          <TouchableOpacity 
+            style={[styles.profileButton, { borderColor: cardBg }]}
+            onPress={() => navigation.navigate(ROUTES.SETTINGS)}
+          >
+            {settings.avatarUri ? (
+              <Image source={{ uri: settings.avatarUri }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
-        {/* HERO CARD - Spuštění skenu */}
+        {/* HERO CARD */}
         <TouchableOpacity 
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate(ROUTES.CAMERA)}
+          activeOpacity={0.85}
+          onPress={navigateToCamera}
+          style={[styles.heroContainer, { backgroundColor: dark ? '#14532d' : '#166534' }]}
         >
-          <LinearGradient
-            colors={[COLORS.primary, COLORS.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroCard}
-          >
-            <View style={styles.heroContent}>
-              <View style={styles.heroBadge}>
-                <MaterialCommunityIcons name="scan-helper" size={16} color="white" />
-                <Text style={styles.heroBadgeText}>AI Analýza</Text>
-              </View>
-              <Text style={styles.heroTitle}>Nová inspekce stromu</Text>
-              <Text style={styles.heroSubtitle}>
-                Identifikace škůdců a analýza požerků pomocí Edge AI.
-              </Text>
-              
-              <View style={styles.ctaButton}>
-                <Text style={styles.ctaText}>Spustit kameru</Text>
-                <Ionicons name="arrow-forward" size={20} color={COLORS.primary} />
-              </View>
+          <View style={styles.heroBackground}>
+            <View style={styles.heroImageWrapper}>
+              <Image 
+                source={{ uri: 'https://images.unsplash.com/photo-1585644013005-a8028ecd0bb6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmb3Jlc3QlMjBuYXR1cmUlMjBsYW5kc2NhcGUlMjBhZXJpYWx8ZW58MXx8fHwxNzcxMDk4MDI4fDA&ixlib=rb-4.1.0&q=80&w=1080' }}
+                style={styles.heroImage}
+              />
+              <LinearGradient
+                colors={[dark ? '#14532d' : '#166534', dark ? '#14532d' : '#166534', 'rgba(22, 101, 52, 0)']}
+                locations={[0, 0.35, 1]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.heroGradient}
+              />
+            </View>
+          </View>
+
+          <View style={styles.heroContent}>
+            <View>
+              <Text style={styles.heroTitle}>{t(lang, 'newInspection')}</Text>
+              <Text style={styles.heroSubtitle}>{t(lang, 'startDetection')}</Text>
             </View>
             
-            {/* Dekorativní ikona na pozadí */}
-            <MaterialCommunityIcons name="tree" size={180} color="rgba(255,255,255,0.1)" style={styles.heroDecor} />
-          </LinearGradient>
+            <View style={[styles.heroBtn, { backgroundColor: cardBg }]}>
+              <Ionicons name="camera-outline" size={20} color={colors.primary} />
+              <Text style={[styles.heroBtnText, { color: colors.primary }]}>{t(lang, 'startCamera')}</Text>
+            </View>
+          </View>
         </TouchableOpacity>
 
-        {/* STATISTIKY */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={[styles.iconBox, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="check-circle" size={24} color={COLORS.primary} />
+        {/* STATUS SECTION */}
+        <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, { color: textPrimary }]}>{t(lang, 'currentStatus')}</Text>
+          <View style={styles.statsGrid}>
+            
+            <View style={[styles.statCard, { backgroundColor: cardBg }]}>
+              <View style={[styles.statIconBadge, { backgroundColor: dark ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.1)' }]}>
+                <MaterialCommunityIcons name="leaf" size={24} color="#4CAF50" />
+              </View>
+              <View style={styles.statContent}>
+                <Text style={[styles.statNumber, { color: textPrimary }]}>{totalScans}</Text>
+                <Text style={[styles.statLabel, { color: textSecondary }]}>{t(lang, 'totalScans')}</Text>
+              </View>
+              <View style={[styles.statDecor, { backgroundColor: dark ? 'rgba(76, 175, 80, 0.15)' : 'rgba(76, 175, 80, 0.1)' }]} />
             </View>
-            <Text style={styles.statNumber}>12</Text>
-            <Text style={styles.statLabel}>Zdravé</Text>
-          </View>
-          
-          <View style={styles.statCard}>
-            <View style={[styles.iconBox, { backgroundColor: '#fee2e2' }]}>
-              <MaterialCommunityIcons name="alert-circle" size={24} color={COLORS.destructive} />
-            </View>
-            <Text style={styles.statNumber}>3</Text>
-            <Text style={styles.statLabel}>Napadené</Text>
-          </View>
 
-           <View style={styles.statCard}>
-            <View style={[styles.iconBox, { backgroundColor: '#fef9c3' }]}>
-              <MaterialCommunityIcons name="history" size={24} color={COLORS.accent} />
+            <View style={[styles.statCard, { backgroundColor: cardBg }]}>
+              <View style={[styles.statIconBadge, { backgroundColor: dark ? 'rgba(255, 152, 0, 0.2)' : 'rgba(255, 152, 0, 0.1)' }]}>
+                <Ionicons name="warning-outline" size={24} color="#FF9800" />
+              </View>
+              <View style={styles.statContent}>
+                <Text style={[styles.statNumber, { color: textPrimary }]}>{issuesCount}</Text>
+                <Text style={[styles.statLabel, { color: textSecondary }]}>{t(lang, 'issuesFound')}</Text>
+              </View>
+              <View style={[styles.statDecor, { backgroundColor: dark ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255, 152, 0, 0.1)' }]} />
             </View>
-            <Text style={styles.statNumber}>15</Text>
-            <Text style={styles.statLabel}>Celkem</Text>
+
           </View>
         </View>
 
-        {/* RECENT ACTIVITY */}
-        <View style={styles.sectionHeader}>
-          <Text style={TYPOGRAPHY.h3}>Nedávná aktivita</Text>
-          <TouchableOpacity onPress={() => navigation.navigate(ROUTES.HISTORY)}>
-            <Text style={styles.linkText}>Zobrazit vše</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.activityList}>
-          {/* Mock položka 1 */}
-          <View style={styles.activityItem}>
-            <View style={styles.activityIcon}>
-              <MaterialCommunityIcons name="bug" size={24} color={COLORS.destructive} />
-            </View>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>Lýkožrout smrkový</Text>
-              <Text style={styles.activitySub}>Smrk ztepilý • Objektová detekce</Text>
-            </View>
-            <Text style={styles.activityTime}>před 2h</Text>
+        {/* LAST SCAN PREVIEW */}
+        {lastScan && (
+          <View style={styles.sectionContainer}>
+            <Text style={[styles.sectionTitle, { color: textPrimary }]}>{t(lang, 'lastDetection')}</Text>
+            <TouchableOpacity 
+              style={[styles.lastScanCard, { backgroundColor: cardBg }]}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate(ROUTES.HISTORY)}
+            >
+              {lastScan.imageUri ? (
+                <Image source={{ uri: lastScan.imageUri }} style={styles.lastScanImage} />
+              ) : (
+                <View style={[styles.lastScanImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: dark ? colors.secondary : '#F4F4F5' }]}>
+                  <Ionicons name="image-outline" size={20} color={colors.text.tertiary} />
+                </View>
+              )}
+              <View style={styles.lastScanContent}>
+                <Text style={[styles.lastScanTitle, { color: textPrimary }]} numberOfLines={1}>
+                  {lastScan.label || t(lang, 'unknownFind')}
+                </Text>
+                <Text style={[styles.lastScanSub, { color: textSecondary }]}>
+                  {getSeverityLabel(lastScan.severity)}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </TouchableOpacity>
           </View>
+        )}
 
-          {/* Mock položka 2 */}
-          <View style={styles.activityItem}>
-            <View style={[styles.activityIcon, { backgroundColor: '#dcfce7' }]}>
-              <MaterialCommunityIcons name="tree" size={24} color={COLORS.primary} />
-            </View>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>Zdravý jedinec</Text>
-              <Text style={styles.activitySub}>Borovice lesní • Segmentace</Text>
-            </View>
-            <Text style={styles.activityTime}>Včera</Text>
+        {/* QUICK ACTIONS */}
+        <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, { color: textPrimary }]}>{t(lang, 'quickActions')}</Text>
+          <View style={styles.actionsList}>
+            
+            <TouchableOpacity 
+              style={[styles.actionButton, { backgroundColor: cardBg }]}
+              onPress={() => navigation.navigate(ROUTES.HISTORY)}
+            >
+              <View style={styles.actionLeft}>
+                <View style={[styles.actionIconBox, { backgroundColor: dark ? 'rgba(37, 99, 235, 0.15)' : '#EFF6FF' }]}> 
+                  <MaterialCommunityIcons name="clock-outline" size={24} color="#2563EB" /> 
+                </View>
+                <View>
+                  <Text style={[styles.actionTitle, { color: textPrimary }]}>{t(lang, 'history')}</Text>
+                  <Text style={[styles.actionSubtitle, { color: textSecondary }]}>{t(lang, 'showPastInspections')}</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.actionButton, { backgroundColor: cardBg }]}
+              onPress={() => navigation.navigate(ROUTES.SETTINGS)}
+            >
+              <View style={styles.actionLeft}>
+                <View style={[styles.actionIconBox, { backgroundColor: dark ? 'rgba(147, 51, 234, 0.15)' : '#FAF5FF' }]}>
+                  <Ionicons name="settings-outline" size={24} color="#9333EA" />
+                </View>
+                <View>
+                  <Text style={[styles.actionTitle, { color: textPrimary }]}>{t(lang, 'settings')}</Text>
+                  <Text style={[styles.actionSubtitle, { color: textSecondary }]}>{t(lang, 'appConfig')}</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={textSecondary} />
+            </TouchableOpacity>
+
           </View>
         </View>
 
@@ -126,63 +228,196 @@ const HomeScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAFA' }, // Light gray bg like shadcn
-  scrollContent: { padding: SPACING.l },
-  
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.l },
-  profileButton: { ...SHADOWS.sm, borderRadius: RADIUS.full },
-  avatar: { width: 44, height: 44, borderRadius: RADIUS.full, borderWidth: 2, borderColor: 'white' },
+  container: { flex: 1 },
+  scrollContent: { padding: SPACING.l, paddingBottom: 40 },
 
-  heroCard: {
-    borderRadius: RADIUS.l,
+  captionText: { fontSize: 12 },
+  h2Text: { fontSize: 24, fontWeight: '600', letterSpacing: -0.5 },
+  
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: SPACING.l,
+    paddingTop: SPACING.s 
+  },
+  profileButton: { 
+    ...SHADOWS.sm, 
+    borderRadius: RADIUS.full,
+    borderWidth: 2,
+  },
+  avatar: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: RADIUS.full, 
+  },
+  avatarFallback: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitials: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  heroContainer: {
+    height: 180,
+    borderRadius: 24,
+    marginBottom: SPACING.l,
+    overflow: 'hidden',
+    position: 'relative',
+    ...SHADOWS.md,
+  },
+  heroBackground: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+  },
+  heroImageWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  heroImage: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: '60%',
+    height: '100%',
+    opacity: 0.6,
+    resizeMode: 'cover',
+  },
+  heroGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroContent: {
+    flex: 1,
     padding: SPACING.l,
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: 4,
+  },
+  heroSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  heroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: RADIUS.m,
+    gap: 8,
+  },
+  heroBtnText: {
+    fontWeight: '600',
+    fontSize: 14,
+  },
+
+  sectionContainer: {
+    marginBottom: SPACING.l,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: SPACING.m,
+  },
+
+  statsGrid: {
+    flexDirection: 'row',
+    gap: SPACING.m,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: RADIUS.l,
+    padding: SPACING.m,
+    height: 140,
+    justifyContent: 'space-between',
     position: 'relative',
     overflow: 'hidden',
-    height: 220,
-    ...SHADOWS.lg,
+    ...SHADOWS.sm,
   },
-  heroContent: { zIndex: 1, height: '100%', justifyContent: 'space-between' },
-  heroBadge: { 
-    flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', 
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.full, alignSelf: 'flex-start', gap: 6 
+  statIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.s,
   },
-  heroBadgeText: { color: 'white', fontWeight: '600', fontSize: 12 },
-  heroTitle: { color: 'white', fontSize: 24, fontWeight: '700', marginTop: SPACING.m },
-  heroSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, maxWidth: '80%' },
-  heroDecor: { position: 'absolute', right: -40, bottom: -40, opacity: 0.15 },
-  
-  ctaButton: { 
-    flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', 
-    paddingHorizontal: SPACING.m, paddingVertical: 10, borderRadius: RADIUS.m, 
-    alignSelf: 'flex-start', gap: 8, marginTop: SPACING.s
+  statContent: {
+    zIndex: 1,
   },
-  ctaText: { color: COLORS.primary, fontWeight: '700' },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  statLabel: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  statDecor: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
 
-  statsContainer: { flexDirection: 'row', gap: SPACING.m, marginTop: SPACING.l },
-  statCard: { 
-    flex: 1, backgroundColor: 'white', padding: SPACING.m, borderRadius: RADIUS.m, 
-    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', ...SHADOWS.sm 
+  lastScanCard: {
+    flexDirection: 'row',
+    padding: SPACING.m,
+    borderRadius: RADIUS.l,
+    alignItems: 'center',
+    gap: SPACING.m,
+    ...SHADOWS.sm,
   },
-  iconBox: { width: 40, height: 40, borderRadius: RADIUS.full, justifyContent: 'center', alignItems: 'center', marginBottom: SPACING.s },
-  statNumber: { fontSize: 24, fontWeight: '700', color: COLORS.text.primary },
-  statLabel: { fontSize: 12, color: COLORS.text.secondary },
+  lastScanImage: {
+    width: 48,
+    height: 48,
+    borderRadius: RADIUS.m,
+    backgroundColor: '#F4F4F5',
+  },
+  lastScanContent: { flex: 1 },
+  lastScanTitle: { fontSize: 16, fontWeight: '600' },
+  lastScanSub: { fontSize: 12, marginTop: 2 },
 
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.xl, marginBottom: SPACING.m },
-  linkText: { color: COLORS.primary, fontWeight: '600', fontSize: 14 },
-
-  activityList: { gap: SPACING.m },
-  activityItem: { 
-    flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', 
-    padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1, borderColor: COLORS.border 
+  actionsList: {
+    gap: SPACING.m,
   },
-  activityIcon: { 
-    width: 48, height: 48, borderRadius: RADIUS.m, backgroundColor: '#fee2e2', 
-    justifyContent: 'center', alignItems: 'center', marginRight: SPACING.m 
+  actionButton: {
+    padding: SPACING.m,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...SHADOWS.sm,
   },
-  activityContent: { flex: 1 },
-  activityTitle: { fontWeight: '600', color: COLORS.text.primary, fontSize: 16 },
-  activitySub: { color: COLORS.text.secondary, fontSize: 12, marginTop: 2 },
-  activityTime: { color: COLORS.text.secondary, fontSize: 12 },
+  actionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.m,
+  },
+  actionIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  actionSubtitle: {
+    fontSize: 13,
+  },
 });
 
 export default HomeScreen;
