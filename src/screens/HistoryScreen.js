@@ -47,7 +47,7 @@ const HistoryScreen = ({ navigation }) => {
 
   const filteredItems = items.filter(item => {
     const matchesFilter = filter === 'all' || 
-      (filter === 'object' && item.type === 'detection') ||
+      (filter === 'object' && (item.type === 'detection' || item.type === 'object_detection')) ||
       (filter === 'segmentation' && item.type === 'segmentation');
     const searchLower = search.toLowerCase();
     const matchesSearch = !search || 
@@ -97,21 +97,27 @@ const HistoryScreen = ({ navigation }) => {
   };
 
   const getSeverityColor = (severity) => {
-    if (severity === 'high') return '#ef4444';
-    if (severity === 'medium') return '#eab308';
+    const normalized = severity === 'critical' ? 'high' : severity === 'warning' ? 'medium' : severity;
+    if (normalized === 'high') return '#ef4444';
+    if (normalized === 'medium') return '#eab308';
     return colors.primary;
   };
 
   const getSeverityBg = (severity) => {
-    if (severity === 'high') return dark ? 'rgba(239,68,68,0.15)' : '#FEF2F2';
-    if (severity === 'medium') return dark ? 'rgba(234,179,8,0.15)' : '#FFFBEB';
+    const normalized = severity === 'critical' ? 'high' : severity === 'warning' ? 'medium' : severity;
+    if (normalized === 'high') return dark ? 'rgba(239,68,68,0.15)' : '#FEF2F2';
+    if (normalized === 'medium') return dark ? 'rgba(234,179,8,0.15)' : '#FFFBEB';
     return dark ? 'rgba(34,197,94,0.15)' : '#F0FDF4';
   };
 
   const renderItem = ({ item }) => {
     const title = item.label || item.title || t(lang, 'unknownFind');
     const confidence = item.confidence || 0;
-    const severity = item.severity || 'low';
+    const severity = item.severity === 'critical'
+      ? 'high'
+      : item.severity === 'warning'
+        ? 'medium'
+        : (item.severity || 'low');
     const date = item.date ? formatDate(item.date) : '';
     const imageSource = item.imageUri ? { uri: item.imageUri } : null;
 
@@ -122,7 +128,7 @@ const HistoryScreen = ({ navigation }) => {
           activeOpacity={0.7}
           onPress={() => navigation.navigate(ROUTES.ANALYSIS, { 
             imageUri: item.imageUri, 
-            mode: item.mode || (item.type === 'detection' ? 'object_detection' : 'segmentation'),
+            mode: item.mode || (item.type === 'detection' || item.type === 'object_detection' ? 'object_detection' : 'segmentation'),
             treeType: item.treeContext || item.treeType || 'unknown',
           })}
         >

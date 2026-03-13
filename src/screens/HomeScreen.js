@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,6 +11,7 @@ import { ROUTES } from '../constants/routes';
 import { getHistory } from '../services/storageServices';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
+import { testLoadModel } from '../services/aiServices'; // import funkce pro testování načítání modelu
 
 const HomeScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
@@ -21,6 +22,20 @@ const HomeScreen = ({ navigation }) => {
   const [issuesCount, setIssuesCount] = useState(0);
   const [lastScan, setLastScan] = useState(null);
 
+  const normalizeSeverity = (severity) => {
+    if (severity === 'critical') return 'high';
+    if (severity === 'warning') return 'medium';
+    return severity || 'low';
+  };
+
+  useEffect(() => {
+    const initAI = async () => {
+      await testLoadModel();
+    };
+    initAI();
+  }, []);
+
+
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
@@ -29,7 +44,10 @@ const HomeScreen = ({ navigation }) => {
           const history = await getHistory();
           if (isActive) {
             setTotalScans(history.length);
-            const issues = history.filter(h => h.severity === 'high' || h.severity === 'medium');
+            const issues = history.filter(h => {
+              const normalized = normalizeSeverity(h.severity);
+              return normalized === 'high' || normalized === 'medium';
+            });
             setIssuesCount(issues.length);
             setLastScan(history.length > 0 ? history[0] : null);
           }
@@ -53,8 +71,9 @@ const HomeScreen = ({ navigation }) => {
     .toUpperCase();
 
   const getSeverityLabel = (severity) => {
-    if (severity === 'high') return t(lang, 'highRisk');
-    if (severity === 'medium') return t(lang, 'mediumRisk');
+    const normalized = normalizeSeverity(severity);
+    if (normalized === 'high') return t(lang, 'highRisk');
+    if (normalized === 'medium') return t(lang, 'mediumRisk');
     return t(lang, 'lowRisk');
   };
 

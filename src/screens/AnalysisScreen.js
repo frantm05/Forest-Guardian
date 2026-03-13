@@ -24,6 +24,11 @@ const AnalysisScreen = ({ route, navigation }) => {
 
   const treeObj = TREE_TYPES.find(tt => tt.id === treeType);
   const treeLabel = treeObj ? t(lang, treeObj.labelKey) : (treeType || t(lang, 'treeUnknown'));
+  const normalizedSeverity = result?.severity === 'critical'
+    ? 'high'
+    : result?.severity === 'warning'
+      ? 'medium'
+      : result?.severity;
 
   useEffect(() => {
     if (!imageUri) {
@@ -37,6 +42,11 @@ const AnalysisScreen = ({ route, navigation }) => {
     analyzeImage(imageUri, mode, treeType)
       .then(data => {
         if (!cancelled) {
+          if (!data || typeof data.confidence !== 'number') {
+            setError(t(lang, 'analysisFailed'));
+            setLoading(false);
+            return;
+          }
           setResult(data);
           setLoading(false);
         }
@@ -110,7 +120,7 @@ const AnalysisScreen = ({ route, navigation }) => {
     );
   }
 
-  const isDanger = result?.severity === 'high';
+  const isDanger = normalizedSeverity === 'high';
   const modeLabel = mode === DETECTION_MODES.OBJECT ? t(lang, 'objectDetection') : t(lang, 'segmentation');
 
   return (
@@ -176,10 +186,10 @@ const AnalysisScreen = ({ route, navigation }) => {
             <View style={[styles.detailItem, { backgroundColor: dark ? colors.surface : colors.secondary }]}>
               <Text style={[styles.detailLabel, { color: colors.text.secondary }]}>{t(lang, 'severityLabel')}</Text>
               <Text style={[styles.detailValue, {
-                color: result.severity === 'high' ? '#ef4444' : 
-                       result.severity === 'medium' ? '#eab308' : colors.primary
+                color: normalizedSeverity === 'high' ? '#ef4444' : 
+                       normalizedSeverity === 'medium' ? '#eab308' : colors.primary
               }]}>
-                {result.severity === 'high' ? t(lang, 'high') : result.severity === 'medium' ? t(lang, 'medium') : t(lang, 'low')}
+                {normalizedSeverity === 'high' ? t(lang, 'high') : normalizedSeverity === 'medium' ? t(lang, 'medium') : t(lang, 'low')}
               </Text>
             </View>
           </View>
@@ -233,8 +243,9 @@ const styles = StyleSheet.create({
   h2: { fontSize: 24, fontWeight: '600', letterSpacing: -0.5 },
   latinName: { fontSize: 16, lineHeight: 24, fontStyle: 'italic', marginBottom: SPACING.l },
 
-  alertCard: { flexDirection: 'row', gap: 12, padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1, marginBottom: SPACING.xl },
-  alertTitle: { fontWeight: '700', fontSize: 16, marginBottom: -40 },
+  alertCard: { flexDirection: 'row', gap: 12, padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1, marginBottom: SPACING.xl, alignItems: 'flex-start' },
+  alertTitle: { fontWeight: '700', fontSize: 16, marginBottom: 6 },
+  alertBody: { fontSize: 14, lineHeight: 20 },
 
   sectionTitle: { fontSize: 20, fontWeight: '600', marginBottom: SPACING.m },
   detailRow: { flexDirection: 'row', gap: SPACING.m, marginBottom: SPACING.m },
