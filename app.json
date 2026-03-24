@@ -19,7 +19,11 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,6 +39,11 @@
         }
       ],
       "react-native-fast-tflite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bc254fe2-f46c-4a45-b39c-05b946a0af50"
+      }
+    }
   }
 }
