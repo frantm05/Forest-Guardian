@@ -114,6 +114,17 @@ const translations = {
     treeUnknownLatin: 'Automatická detekce',
     // Analýza
     unknownAgent: 'Neznámý původce',
+    // Pipeline fáze
+    yoloDetection: 'Detekce oblasti (YOLO)',
+    classifying: 'Klasifikuji škůdce...',
+    yoloConfidence: 'Detekce',
+    regionDetected: 'Oblast detekována',
+    regionDetectedDesc: 'AI označila oblast podezřelou na požerek. Zkontrolujte zeleně zvýrazněnou oblast.',
+    detectedArea: 'Detekovaná oblast',
+    detectedAreaHint: 'Zelený rámeček ukazuje oblast, kterou AI vyhodnotila jako požerek. Potvrďte pro klasifikaci druhu škůdce.',
+    confirmAndClassify: 'Potvrdit a klasifikovat',
+    retakePhoto: 'Vyfotit znovu',
+    noDetectionHint: 'Na fotografii nebyl detekován žádný jasný znak požerku. Zkuste zabrat kůru detailněji a zaostřit.',
   },
   en: {
     welcomeBack: 'Welcome back',
@@ -228,6 +239,17 @@ const translations = {
     treeUnknown: 'Auto-detect',
     treeUnknownLatin: 'Automatic detection',
     unknownAgent: 'Unknown agent',
+    // Pipeline phases
+    yoloDetection: 'Region detection (YOLO)',
+    classifying: 'Classifying pest...',
+    yoloConfidence: 'Detection',
+    regionDetected: 'Region detected',
+    regionDetectedDesc: 'AI highlighted a region suspected of pest damage. Review the green-highlighted area.',
+    detectedArea: 'Detected area',
+    detectedAreaHint: 'The green box shows the area the AI identified as pest damage. Confirm to classify the pest species.',
+    confirmAndClassify: 'Confirm & classify',
+    retakePhoto: 'Retake photo',
+    noDetectionHint: 'No clear signs of pest damage were detected. Try focusing closer on the bark detail.',
   },
   es: {
     welcomeBack: 'Bienvenido de nuevo',
@@ -342,6 +364,17 @@ const translations = {
     treeUnknown: 'Automático',
     treeUnknownLatin: 'Detección automática',
     unknownAgent: 'Agente desconocido',
+    // Fases del pipeline
+    yoloDetection: 'Detección de región (YOLO)',
+    classifying: 'Clasificando plaga...',
+    yoloConfidence: 'Detección',
+    regionDetected: 'Región detectada',
+    regionDetectedDesc: 'La IA ha marcado una región sospechosa de daño por plagas. Revise el área resaltada en verde.',
+    detectedArea: 'Área detectada',
+    detectedAreaHint: 'El recuadro verde muestra el área que la IA identificó como daño por plagas. Confirme para clasificar la especie.',
+    confirmAndClassify: 'Confirmar y clasificar',
+    retakePhoto: 'Tomar otra foto',
+    noDetectionHint: 'No se detectaron signos claros de daño por plagas. Intente enfocar más de cerca la corteza.',
   },
 };
 
