@@ -7,7 +7,7 @@ import { DETECTION_MODES, TREE_TYPES } from '../services/aiServices';
  */
 const useInterface = () => {
   const [selectedTree, setSelectedTree] = useState(TREE_TYPES[0]);
-  const [mode, setMode] = useState(DETECTION_MODES.OBJECT);
+  const [mode, setMode] = useState(DETECTION_MODES.SEGMENTATION);
   const [showTreeModal, setShowTreeModal] = useState(false);
 
   const openTreeModal = useCallback(() => setShowTreeModal(true), []);
