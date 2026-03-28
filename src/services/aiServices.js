@@ -44,6 +44,7 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
   try {
     const { mobileNetModel, samEncoder, samDecoder } = await initModel();
     let mobileNetInput = null;
+    let samMaskUriResult = null;
 
     console.log("=== START DYNAMICKÉ AI PIPELINE ===");
 
@@ -124,6 +125,11 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
       // FÁZE 2: STRIKTNÍ SAM DECODER (bez hádání)
       // ==========================================
       console.log("[SAM] Osahávám Decoder a připravuji masku...");
+      console.log("[SAM] Vstupy Decoderu:", samDecoder.inputs.map(inp => ({
+        name: inp?.name,
+        shape: inp?.shape,
+        dtype: inp?.dataType ?? inp?.dtype ?? inp?.type,
+      })));
       const pt1X = samBox.percentMinX * encoderSize;
       const pt1Y = samBox.percentMinY * encoderSize;
       const pt2X = samBox.percentMaxX * encoderSize;
@@ -185,15 +191,17 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
           continue;
         }
 
-        if (name.includes('mask_input') || (rank >= 3 && size === 256 * 256)) {
-          decoderInputsArray.push(createTypedTensor(inp, size));
-          hasMaskInput = true;
-          continue;
-        }
-
+        // POZOR: Jméno 'has_mask_input' obsahuje podřetězec 'mask_input',
+        // proto musí být 'has_mask' kontrolováno jako první.
         if (name.includes('has_mask') || (name.includes('has') && size === 1)) {
           decoderInputsArray.push(createTypedTensor(inp, size));
           hasHasMaskInput = true;
+          continue;
+        }
+
+        if (name.includes('mask_input') || (rank >= 3 && size === 256 * 256)) {
+          decoderInputsArray.push(createTypedTensor(inp, size));
+          hasMaskInput = true;
           continue;
         }
 
@@ -263,6 +271,19 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
         throw new Error('Decoder vrátil prázdnou masku.');
       }
 
+      // Zakódujeme maskovaný obrázek zpět do JPEG pro zobrazení v UI
+      let samMaskUri = null;
+      try {
+        const maskJpegEncoded = jpeg.encode(
+          { width: maskSize, height: maskSize, data: Buffer.from(pixels256) },
+          80
+        );
+        samMaskUri = `data:image/jpeg;base64,${Buffer.from(maskJpegEncoded.data).toString('base64')}`;
+      } catch (encodeErr) {
+        console.warn('[Mask] Nelze zakódovat maskovaný obrázek:', encodeErr?.message);
+      }
+      samMaskUriResult = samMaskUri;
+
       const cropX = clamp(minX, 0, maskSize - 1);
       const cropY = clamp(minY, 0, maskSize - 1);
       const cropW = Math.max(1, clamp(maxX - minX, 1, maskSize - cropX));
@@ -329,7 +350,8 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
         label: 'Zdravá kůra / Nejde o škůdce',
         severity: 'info',
         recommendation: 'Zakroužkovaný objekt neodpovídá škůdci. Model vyhodnotil, že se jedná pravděpodobně o přirozenou anomálii kůry, suk nebo stín.',
-        treeContext: treeType
+        treeContext: treeType,
+        maskUri: samMaskUriResult,
       };
     }
 
@@ -339,7 +361,8 @@ export const analyzeImage = async (imageUri, treeType, samBox) => {
       label: PEST_CLASSES[maxIndex],
       severity: maxProb > 0.60 ? 'critical' : 'warning',
       recommendation: `Škůdce detekován. Očekávaný druh na zvolené dřevině.`,
-      treeContext: treeType
+      treeContext: treeType,
+      maskUri: samMaskUriResult,
     };
 
   } catch (error) {

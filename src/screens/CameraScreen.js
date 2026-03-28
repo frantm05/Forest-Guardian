@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 import { SPACING, RADIUS } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
@@ -176,25 +176,23 @@ const CameraScreen = ({ navigation }) => {
             resizeMode="cover" 
           />
           
-          {/* Překryvná vrstva pro kreslení SVG */}
+              {/* Překryvná vrstva pro kreslení SVG */}
           <View style={StyleSheet.absoluteFill}>
             <Svg height="100%" width="100%">
               {pathData ? (
                 <Path d={pathData} fill="none" stroke="#EF4444" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
               ) : null}
-              {/* Volitelně vykreslíme i ten vypočítaný box pro debug/efekt */}
               {boundingBox && (
-                <View style={{
-                  position: 'absolute',
-                  left: boundingBox.minX,
-                  top: boundingBox.minY,
-                  width: boundingBox.width,
-                  height: boundingBox.height,
-                  borderWidth: 2,
-                  borderColor: 'rgba(239, 68, 68, 0.4)',
-                  borderStyle: 'dashed',
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)'
-                }} />
+                <Rect
+                  x={boundingBox.minX}
+                  y={boundingBox.minY}
+                  width={boundingBox.width}
+                  height={boundingBox.height}
+                  fill="rgba(239, 68, 68, 0.1)"
+                  stroke="rgba(239, 68, 68, 0.6)"
+                  strokeWidth="2"
+                  strokeDasharray="6,4"
+                />
               )}
             </Svg>
           </View>
