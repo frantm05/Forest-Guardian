@@ -4,7 +4,7 @@ import { View, Text, Image, StyleSheet, ScrollView, TouchableOpacity, ActivityIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SPACING, RADIUS, SHADOWS } from '../constants/theme';
-import { detectPestRegion, classifyPestRegion, TREE_TYPES } from '../services/aiServices';
+import { analyzeImage, TREE_TYPES } from '../services/aiServices';
 import { saveRecord } from '../services/storageServices';
 import { saveImageLocally } from '../services/fileServices';
 import { formatConfidence } from '../utils/formatters';
@@ -19,11 +19,10 @@ const AnalysisScreen = ({ route, navigation }) => {
   const lang = settings.language;
   const dark = settings.darkMode;
 
-  const { imageUri, treeType } = route.params || {};
+  const { imageUri, treeType, samBox } = route.params || {};
 
-  // Fáze pipeline: 'detecting' → 'confirm' → 'classifying' → 'result'
-  const [phase, setPhase] = useState('detecting');
-  const [detection, setDetection] = useState(null);
+  // Fáze pipeline: 'loading' → 'result'
+  const [phase, setPhase] = useState('loading');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -37,7 +36,7 @@ const AnalysisScreen = ({ route, navigation }) => {
       ? 'medium'
       : result?.severity;
 
-  // FÁZE 1: YOLO detekce
+  // Spuštění kompletní AI pipeline při načtení obrazovky
   useEffect(() => {
     if (!imageUri) {
       setError(t(lang, 'noImageError'));
@@ -47,61 +46,25 @@ const AnalysisScreen = ({ route, navigation }) => {
 
     let cancelled = false;
 
-    detectPestRegion(imageUri)
+    analyzeImage(imageUri, treeType, samBox)
       .then(data => {
         if (cancelled) return;
-        if (!data) {
+        if (!data || typeof data.confidence !== 'number') {
           setError(t(lang, 'analysisFailed'));
-          setPhase('result');
-          return;
-        }
-        setDetection(data);
-        if (data.detected) {
-          // Ukážeme oblast a čekáme na potvrzení
-          setPhase('confirm');
         } else {
-          // Žádný požerek → rovnou výsledek
-          setResult({
-            type: 'segmentation',
-            confidence: 1.0 - data.confidence,
-            label: 'Zdravé dřevo / Neznámé',
-            severity: 'info',
-            recommendation: t(lang, 'noDetectionHint'),
-            treeContext: treeType
-          });
-          setPhase('result');
+          setResult(data);
         }
+        setPhase('result');
       })
       .catch(e => {
         if (cancelled) return;
-        console.error('Chyba při detekci:', e);
+        console.error('Chyba při analýze:', e);
         setError(t(lang, 'analysisFailed'));
         setPhase('result');
       });
 
     return () => { cancelled = true; };
   }, [imageUri]);
-
-  // Spuštění klasifikace po potvrzení oblasti
-  const runClassification = async () => {
-    if (!detection?.region) return;
-    setPhase('classifying');
-
-    try {
-      const data = await classifyPestRegion(imageUri, detection.region, treeType);
-      if (!data || typeof data.confidence !== 'number') {
-        setError(t(lang, 'analysisFailed'));
-        setPhase('result');
-        return;
-      }
-      setResult(data);
-      setPhase('result');
-    } catch (e) {
-      console.error('Chyba při klasifikaci:', e);
-      setError(t(lang, 'analysisFailed'));
-      setPhase('result');
-    }
-  };
 
   const handleSave = async () => {
     if (!result || saving) return;
@@ -124,10 +87,9 @@ const AnalysisScreen = ({ route, navigation }) => {
   const cardBg = dark ? colors.surface : '#f9fafb';
 
   // ==========================================
-  // LOADING – detekce nebo klasifikace
+  // LOADING – probíhá AI analýza
   // ==========================================
-  if (phase === 'detecting' || phase === 'classifying') {
-    const isDetecting = phase === 'detecting';
+  if (phase === 'loading') {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor: bg }]}>
         <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
@@ -135,7 +97,7 @@ const AnalysisScreen = ({ route, navigation }) => {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
         <Text style={[styles.loadingText, { color: colors.text.primary }]}>
-          {isDetecting ? t(lang, 'analyzing') : t(lang, 'classifying')}
+          {t(lang, 'analyzing')}
         </Text>
         <Text style={[styles.loadingSub, { color: colors.text.secondary }]}>{t(lang, 'edgeAI')}</Text>
         <View style={styles.loadingSteps}>
@@ -144,97 +106,14 @@ const AnalysisScreen = ({ route, navigation }) => {
             <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'preprocessing')}</Text>
           </View>
           <View style={styles.loadingStep}>
-            {isDetecting ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
-            )}
-            <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'yoloDetection')}</Text>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'samSegmentation')}</Text>
           </View>
-          {!isDetecting && (
-            <View style={styles.loadingStep}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'inference')}</Text>
-            </View>
-          )}
+          <View style={styles.loadingStep}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'inference')}</Text>
+          </View>
         </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ==========================================
-  // POTVRZENÍ DETEKCE – zobrazení bounding boxu
-  // ==========================================
-  if (phase === 'confirm' && detection?.region) {
-    const region = detection.region;
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
-        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-
-          {/* Obrázek s overlay bounding boxem */}
-          <View style={styles.imageHeader}>
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.mainImage}
-              onLayout={(e) => setImageSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
-            />
-            {imageSize && (
-              <View
-                style={[
-                  styles.regionOverlay,
-                  {
-                    left: region.relX * imageSize.width,
-                    top: region.relY * imageSize.height,
-                    width: region.relW * imageSize.width,
-                    height: region.relH * imageSize.height,
-                  },
-                ]}
-              />
-            )}
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-              <Ionicons name="arrow-back" size={24} color="white" />
-            </TouchableOpacity>
-            <View style={styles.badgeContainer}>
-              <View style={[styles.badge, { backgroundColor: colors.primaryLight }]}>
-                <Text style={styles.badgeText}>
-                  {t(lang, 'yoloConfidence')}: {(detection.confidence * 100).toFixed(0)}%
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.content, { backgroundColor: bg }]}>
-            <Text style={[styles.h2, { color: colors.text.primary }]}>{t(lang, 'regionDetected')}</Text>
-            <Text style={[styles.latinName, { color: colors.text.secondary }]}>
-              {t(lang, 'regionDetectedDesc')}
-            </Text>
-
-            <View style={[styles.alertCard, { borderColor: colors.primary, backgroundColor: cardBg }]}>
-              <MaterialCommunityIcons name="crop" size={24} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.alertTitle, { color: colors.primary }]}>{t(lang, 'detectedArea')}</Text>
-                <Text style={[styles.alertBody, { color: colors.text.secondary }]}>
-                  {t(lang, 'detectedAreaHint')}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-                onPress={runClassification}
-              >
-                <Text style={styles.primaryBtnText}>{t(lang, 'confirmAndClassify')}</Text>
-                <Ionicons name="sparkles" size={20} color="white" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.secondaryBtn, { borderColor: colors.border }]} onPress={() => navigation.goBack()}>
-                <Text style={[styles.secondaryBtnText, { color: colors.text.primary }]}>{t(lang, 'retakePhoto')}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -269,22 +148,22 @@ const AnalysisScreen = ({ route, navigation }) => {
       <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         
-        {/* IMAGE HEADER */}
+        {/* IMAGE HEADER – originál s vyznačeným samBox */}
         <View style={styles.imageHeader}>
           <Image
             source={{ uri: imageUri }}
             style={styles.mainImage}
             onLayout={(e) => setImageSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
           />
-          {detection?.region && imageSize && (
+          {samBox && imageSize && (
             <View
               style={[
                 styles.regionOverlay,
                 {
-                  left: detection.region.relX * imageSize.width,
-                  top: detection.region.relY * imageSize.height,
-                  width: detection.region.relW * imageSize.width,
-                  height: detection.region.relH * imageSize.height,
+                  left: samBox.percentMinX * imageSize.width,
+                  top: samBox.percentMinY * imageSize.height,
+                  width: (samBox.percentMaxX - samBox.percentMinX) * imageSize.width,
+                  height: (samBox.percentMaxY - samBox.percentMinY) * imageSize.height,
                 },
               ]}
             />
@@ -304,8 +183,22 @@ const AnalysisScreen = ({ route, navigation }) => {
           <Text style={[styles.h2, { color: colors.text.primary }]}>{result.label}</Text>
           <Text style={[styles.latinName, { color: colors.text.secondary }]}>
             {result.treeContext === 'spruce' ? 'Ips typographus' : 
+             result.treeContext === 'larch' ? 'Ips cembrae' :
              result.treeContext === 'pine' ? 'Hylobius abietis' : t(lang, 'unknownAgent')}
           </Text>
+
+          {/* SAM MASKA – zobrazení segmentované oblasti */}
+          {result.maskUri ? (
+            <View style={[styles.maskCard, { backgroundColor: cardBg }]}>
+              <Text style={[styles.maskCardTitle, { color: colors.text.primary }]}>{t(lang, 'aiSegmentedArea')}</Text>
+              <Text style={[styles.maskCardHint, { color: colors.text.secondary }]}>{t(lang, 'aiSegmentedAreaHint')}</Text>
+              <Image
+                source={{ uri: result.maskUri }}
+                style={styles.maskImage}
+                resizeMode="contain"
+              />
+            </View>
+          ) : null}
 
           {/* STATUS CARD */}
           <View style={[styles.alertCard, { borderColor: isDanger ? '#ef4444' : colors.primary, backgroundColor: cardBg }]}>
@@ -408,6 +301,11 @@ const styles = StyleSheet.create({
   content: { padding: SPACING.l, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, marginTop: -20 },
   h2: { fontSize: 24, fontWeight: '600', letterSpacing: -0.5 },
   latinName: { fontSize: 16, lineHeight: 24, fontStyle: 'italic', marginBottom: SPACING.l },
+
+  maskCard: { borderRadius: RADIUS.m, padding: SPACING.m, marginBottom: SPACING.l },
+  maskCardTitle: { fontWeight: '700', fontSize: 16, marginBottom: 4 },
+  maskCardHint: { fontSize: 13, lineHeight: 18, marginBottom: SPACING.s },
+  maskImage: { width: '100%', height: 200, borderRadius: RADIUS.s },
 
   alertCard: { flexDirection: 'row', gap: 12, padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1, marginBottom: SPACING.xl, alignItems: 'flex-start' },
   alertTitle: { fontWeight: '700', fontSize: 16, marginBottom: 6 },

@@ -125,6 +125,9 @@ const translations = {
     confirmAndClassify: 'Potvrdit a klasifikovat',
     retakePhoto: 'Vyfotit znovu',
     noDetectionHint: 'Na fotografii nebyl detekován žádný jasný znak požerku. Zkuste zabrat kůru detailněji a zaostřit.',
+    samSegmentation: 'SAM segmentace oblasti...',
+    aiSegmentedArea: 'Oblast analyzovaná AI (SAM maska)',
+    aiSegmentedAreaHint: 'Toto je oblast, kterou AI přesně vyřízla a klasifikovala. Pokud maska neodpovídá požerku, vyfotte znovu a přesněji označte oblast.',
   },
   en: {
     welcomeBack: 'Welcome back',
@@ -250,6 +253,9 @@ const translations = {
     confirmAndClassify: 'Confirm & classify',
     retakePhoto: 'Retake photo',
     noDetectionHint: 'No clear signs of pest damage were detected. Try focusing closer on the bark detail.',
+    samSegmentation: 'SAM area segmentation...',
+    aiSegmentedArea: 'AI analyzed area (SAM mask)',
+    aiSegmentedAreaHint: 'This is the area precisely extracted and classified by AI. If the mask does not match the damage, retake the photo and mark the area more precisely.',
   },
   es: {
     welcomeBack: 'Bienvenido de nuevo',
@@ -375,6 +381,9 @@ const translations = {
     confirmAndClassify: 'Confirmar y clasificar',
     retakePhoto: 'Tomar otra foto',
     noDetectionHint: 'No se detectaron signos claros de daño por plagas. Intente enfocar más de cerca la corteza.',
+    samSegmentation: 'Segmentación de área SAM...',
+    aiSegmentedArea: 'Área analizada por IA (máscara SAM)',
+    aiSegmentedAreaHint: 'Esta es el área extraída y clasificada con precisión por la IA. Si la máscara no coincide con el daño, tome otra foto y marque el área con más precisión.',
   },
 };
 
