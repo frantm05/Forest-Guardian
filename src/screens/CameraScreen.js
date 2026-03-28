@@ -1,13 +1,11 @@
 // src/screens/CameraScreen.js
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert, ScrollView, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert, ScrollView, Image, Dimensions, PanResponder } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import Svg, { Path } from 'react-native-svg';
 
 import { SPACING, RADIUS } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
@@ -15,7 +13,9 @@ import { TREE_TYPES } from '../services/aiServices';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SCREEN_WIDTH = Dimensions.get('window').width;
+// Klasický poměr stran kamery 4:3
+const CAMERA_HEIGHT = SCREEN_WIDTH * (4 / 3); 
 
 const CameraScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
@@ -28,55 +28,66 @@ const CameraScreen = ({ navigation }) => {
   const [facing, setFacing] = useState('back');
   const [showTreeModal, setShowTreeModal] = useState(false);
   const [isTakingPicture, setIsTakingPicture] = useState(false);
+  
   const [capturedPhoto, setCapturedPhoto] = useState(null);
-  const [previewLayout, setPreviewLayout] = useState(null);
-  const [focusLayout, setFocusLayout] = useState(null);
-  const [frameLayout, setFrameLayout] = useState(null);
+  
+  // Stavy pro kreslení zakroužkování
+  const [currentPath, setCurrentPath] = useState([]);
+  const [boundingBox, setBoundingBox] = useState(null);
 
+  // --- LOGIKA KRESLENÍ (PAN RESPONDER) ---
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        // Uživatel se dotkl obrazovky, začínáme novou čáru a mažeme starý box
+        const { locationX, locationY } = evt.nativeEvent;
+        setCurrentPath([{ x: locationX, y: locationY }]);
+        setBoundingBox(null);
+      },
+      onPanResponderMove: (evt) => {
+        // Uživatel táhne prstem
+        const { locationX, locationY } = evt.nativeEvent;
+        setCurrentPath(prev => [...prev, { x: locationX, y: locationY }]);
+      },
+      onPanResponderRelease: () => {
+        // Uživatel pustil prst, vypočítáme Bounding Box (Nejmenší a největší X, Y)
+        setCurrentPath(prev => {
+          if (prev.length > 2) {
+            const xs = prev.map(p => p.x);
+            const ys = prev.map(p => p.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            
+            setBoundingBox({
+              minX, minY, maxX, maxY,
+              width: maxX - minX,
+              height: maxY - minY,
+              // Procentuální uložení pro AI
+              percentMinX: minX / SCREEN_WIDTH,
+              percentMinY: minY / CAMERA_HEIGHT,
+              percentMaxX: maxX / SCREEN_WIDTH,
+              percentMaxY: maxY / CAMERA_HEIGHT,
+            });
+          }
+          // Čáru necháme na displeji, aby uživatel viděl, co zakroužkoval
+          return prev; 
+        });
+      }
+    })
+  ).current;
+
+  // Generování SVG Path stringu z pole bodů
+  const pathData = currentPath.length > 0 
+    ? `M ${currentPath[0].x} ${currentPath[0].y} ` + currentPath.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
+    : '';
+
+  // --- FUNKCE KAMERY ---
   const toggleFacing = () => {
     setFacing(f => f === 'back' ? 'front' : 'back');
     if (facing === 'back' && flash === 'on') setFlash('off');
-  };
-
-  const cropPhotoToIndicatorSquare = async (photo) => {
-    if (!photo?.uri || !photo?.width || !photo?.height || !previewLayout || !focusLayout || !frameLayout) {
-      return photo;
-    }
-
-    const frameXInPreview = focusLayout.x + frameLayout.x;
-    const frameYInPreview = focusLayout.y + frameLayout.y;
-    const frameWidthInPreview = frameLayout.width;
-    const frameHeightInPreview = frameLayout.height;
-
-    const scale = Math.max(
-      previewLayout.width / photo.width,
-      previewLayout.height / photo.height
-    );
-
-    const displayedWidth = photo.width * scale;
-    const displayedHeight = photo.height * scale;
-    const offsetX = (previewLayout.width - displayedWidth) / 2;
-    const offsetY = (previewLayout.height - displayedHeight) / 2;
-
-    let cropX = (frameXInPreview - offsetX) / scale;
-    let cropY = (frameYInPreview - offsetY) / scale;
-    let cropWidth = frameWidthInPreview / scale;
-    let cropHeight = frameHeightInPreview / scale;
-
-    const side = Math.max(1, Math.round(Math.min(cropWidth, cropHeight)));
-    cropX += (cropWidth - side) / 2;
-    cropY += (cropHeight - side) / 2;
-
-    const maxX = Math.max(0, photo.width - side);
-    const maxY = Math.max(0, photo.height - side);
-    cropX = Math.max(0, Math.min(cropX, maxX));
-    cropY = Math.max(0, Math.min(cropY, maxY));
-
-    return manipulateAsync(
-      photo.uri,
-      [{ crop: { originX: Math.round(cropX), originY: Math.round(cropY), width: side, height: side } }],
-      { format: SaveFormat.JPEG, compress: 0.9 }
-    );
   };
 
   const takePicture = async () => {
@@ -84,14 +95,13 @@ const CameraScreen = ({ navigation }) => {
     try {
       setIsTakingPicture(true);
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
-      
       if (photo?.uri) {
-        const squaredPhoto = await cropPhotoToIndicatorSquare(photo);
-        setCapturedPhoto(squaredPhoto);
+        setCapturedPhoto(photo);
+        setCurrentPath([]);
+        setBoundingBox(null);
       }
     } catch (e) {
       Alert.alert(t(lang, 'error'), t(lang, 'photoError'));
-      console.error('Chyba při focení:', e);
     } finally {
       setIsTakingPicture(false);
     }
@@ -105,193 +115,204 @@ const CameraScreen = ({ navigation }) => {
       });
       if (!result.canceled && result.assets?.[0]?.uri) {
         setCapturedPhoto(result.assets[0]);
+        setCurrentPath([]);
+        setBoundingBox(null);
       }
     } catch (e) {
       Alert.alert(t(lang, 'error'), t(lang, 'galleryError'));
     }
   };
 
+  const confirmAnalysis = () => {
+    if (!boundingBox) {
+      Alert.alert("Nápověda", "Prosím, zakroužkujte prstem požerek na fotografii, aby ho AI mohla vyříznout.");
+      return;
+    }
+    
+    // Posíláme do AnalysisScreen fotku i přesné procentuální souřadnice boxu
+    navigation.navigate(ROUTES.ANALYSIS, { 
+      imageUri: capturedPhoto.uri, 
+      treeType: selectedTree.id,
+      samBox: boundingBox
+    });
+    setCapturedPhoto(null);
+  };
+
+
   if (!permission) return <View style={styles.container} />;
   if (!permission.granted) {
     return (
       <SafeAreaView style={[styles.center, { backgroundColor: colors.background }]}>
-        <Ionicons name="camera-outline" size={64} color={colors.text.secondary} style={{ marginBottom: SPACING.m }} />
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary, marginBottom: SPACING.s, textAlign: 'center' }}>{t(lang, 'cameraAccess')}</Text>
-        <TouchableOpacity onPress={requestPermission} style={[styles.permButton, { backgroundColor: colors.primary }]}>
-          <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>{t(lang, 'allowAccess')}</Text>
+        <Text style={{ color: 'white' }}>Potřebujeme přístup ke kameře</Text>
+        <TouchableOpacity onPress={requestPermission} style={styles.permButton}>
+          <Text style={{ color: 'white' }}>Povolit</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
-  const treeDisplayName = t(lang, selectedTree.labelKey) !== selectedTree.labelKey ? t(lang, selectedTree.labelKey) : selectedTree.label;
-
-  // NÁHLED PO VYFOCENÍ
+  // ==========================================
+  // NÁHLED PO VYFOCENÍ (Režim zakroužkování)
+  // ==========================================
   if (capturedPhoto) {
     return (
-      <View style={styles.container}>
-        <StatusBar hidden />
-        <View style={{ flex: 1, backgroundColor: 'black' }}>
-          <Image source={{ uri: capturedPhoto.uri }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="cover" />
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        
+        {/* HORNÍ PRUH */}
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => setCapturedPhoto(null)} style={styles.iconButton}>
+            <Ionicons name="arrow-back" size={28} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.topBarTitle}>Označte požerek</Text>
+          <View style={{ width: 40 }} />
         </View>
 
-        <SafeAreaView style={styles.previewTopBar}>
-          <TouchableOpacity onPress={() => setCapturedPhoto(null)} style={styles.glassCircle}>
-            <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-            <Ionicons name="trash-outline" size={20} color="white" />
-          </TouchableOpacity>
-        </SafeAreaView>
+        {/* PROSTOR PRO FOTKU 4:3 A KRESLENÍ */}
+        <View style={styles.cameraWrapper} {...panResponder.panHandlers}>
+          <Image 
+            source={{ uri: capturedPhoto.uri }} 
+            style={styles.cameraView} 
+            resizeMode="cover" 
+          />
+          
+          {/* Překryvná vrstva pro kreslení SVG */}
+          <View style={StyleSheet.absoluteFill}>
+            <Svg height="100%" width="100%">
+              {pathData ? (
+                <Path d={pathData} fill="none" stroke="#EF4444" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+              ) : null}
+              {/* Volitelně vykreslíme i ten vypočítaný box pro debug/efekt */}
+              {boundingBox && (
+                <View style={{
+                  position: 'absolute',
+                  left: boundingBox.minX,
+                  top: boundingBox.minY,
+                  width: boundingBox.width,
+                  height: boundingBox.height,
+                  borderWidth: 2,
+                  borderColor: 'rgba(239, 68, 68, 0.4)',
+                  borderStyle: 'dashed',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                }} />
+              )}
+            </Svg>
+          </View>
+        </View>
 
-        <SafeAreaView style={styles.previewBottomBar}>
-          <TouchableOpacity style={styles.confirmBtn} onPress={() => {
-            navigation.navigate(ROUTES.ANALYSIS, { 
-              imageUri: capturedPhoto.uri, 
-              treeType: selectedTree.id 
-            });
-            setCapturedPhoto(null);
-          }}>
-            <Text style={styles.confirmBtnText}>Spustit AI Analýzu</Text>
+        {/* SPODNÍ PRUH S TLAČÍTKEM */}
+        <View style={styles.bottomBar}>
+          <Text style={styles.instructionText}>
+            Zakroužkujte nebo přeškrtněte poškozenou část kůry prstem.
+          </Text>
+          <TouchableOpacity 
+            style={[styles.confirmBtn, !boundingBox && { opacity: 0.5 }]} 
+            onPress={confirmAnalysis}
+          >
+            <Text style={styles.confirmBtnText}>Potvrdit a analyzovat</Text>
             <Ionicons name="sparkles" size={20} color="white" />
           </TouchableOpacity>
-        </SafeAreaView>
-      </View>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // ŽIVÁ KAMERA
+  // ==========================================
+  // ŽIVÁ KAMERA (Klasický nativní vzhled)
+  // ==========================================
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <CameraView style={styles.camera} ref={cameraRef} flash={flash} facing={facing} enableTorch={flash === 'on' && facing === 'back'}>
-        <SafeAreaView style={styles.overlay} onLayout={(e) => setPreviewLayout(e.nativeEvent.layout)}>
-          
-          <View style={styles.headerBar}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.glassCircle}>
-              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-              <Ionicons name="close" size={24} color="white" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.glassPill} onPress={() => setShowTreeModal(true)}>
-              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-              <Text style={{ fontSize: 16 }}>🌲</Text>
-              <Text style={styles.treeText}>{treeDisplayName}</Text>
-              <Ionicons name="chevron-down" size={12} color="white" />
-            </TouchableOpacity>
+      
+      {/* HORNÍ PRUH (Nastavení) */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton}>
+          <Ionicons name="close" size={28} color="white" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.treeSelector} onPress={() => setShowTreeModal(true)}>
+          <Text style={styles.treeSelectorText}>{selectedTree.label}</Text>
+          <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 4 }} />
+        </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => { if (facing !== 'front') setFlash(f => f === 'off' ? 'on' : 'off'); }} style={[styles.glassCircle, facing === 'front' && { opacity: 0.4 }]}>
-              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-              <Ionicons name={flash === 'on' ? "flash" : "flash-off"} size={20} color={flash === 'on' ? '#FBBF24' : 'white'} />
-            </TouchableOpacity>
-          </View>
+        <TouchableOpacity onPress={() => { if (facing !== 'front') setFlash(f => f === 'off' ? 'on' : 'off'); }} style={styles.iconButton}>
+          <Ionicons name={flash === 'on' ? "flash" : "flash-off"} size={24} color={flash === 'on' ? '#FBBF24' : 'white'} />
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.focusContainer} onLayout={(e) => setFocusLayout(e.nativeEvent.layout)}>
-            <View style={styles.frameBox} onLayout={(e) => setFrameLayout(e.nativeEvent.layout)}>
-              <View style={[styles.corner, styles.tl]} />
-              <View style={[styles.corner, styles.tr]} />
-              <View style={[styles.corner, styles.bl]} />
-              <View style={[styles.corner, styles.br]} />
-            </View>
-            <View style={styles.hintBadge}>
-              <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
-              <Text style={styles.hintText}>Zaměřte detail požerku do středu</Text>
-            </View>
-          </View>
+      {/* PROSTOR PRO KAMERU 4:3 */}
+      <View style={styles.cameraWrapper}>
+        <CameraView style={styles.cameraView} ref={cameraRef} flash={flash} facing={facing} enableTorch={flash === 'on' && facing === 'back'} />
+      </View>
 
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomBar}>
-            <View style={styles.shutterRow}>
-              <TouchableOpacity onPress={toggleFacing} style={styles.glassCircle}>
-                <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-                <Ionicons name="camera-reverse-outline" size={22} color="white" />
-              </TouchableOpacity>
-              
-              <TouchableOpacity onPress={takePicture} style={[styles.shutterOuter, isTakingPicture && { opacity: 0.5 }]} disabled={isTakingPicture}>
-                <View style={styles.shutterInner} />
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.glassCircle} onPress={pickFromGallery}>
-                 <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-                 <Ionicons name="images-outline" size={22} color="white" />
-              </TouchableOpacity>
-            </View>
-          </LinearGradient>
+      {/* SPODNÍ PRUH (Spoušť a galerie) */}
+      <View style={styles.bottomBar}>
+        <TouchableOpacity style={styles.sideButton} onPress={pickFromGallery}>
+           <Ionicons name="images-outline" size={28} color="white" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={takePicture} style={[styles.shutterOuter, isTakingPicture && { opacity: 0.5 }]} disabled={isTakingPicture}>
+          <View style={styles.shutterInner} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={toggleFacing} style={styles.sideButton}>
+          <Ionicons name="camera-reverse-outline" size={28} color="white" />
+        </TouchableOpacity>
+      </View>
 
-        </SafeAreaView>
-      </CameraView>
-
-      {/* VÝBĚR STROMU */}
-      <Modal visible={showTreeModal} transparent animationType="slide">
+      {/* MODAL PRO VÝBĚR STROMU (Zjednodušený) */}
+      <Modal visible={showTreeModal} transparent animationType="fade">
         <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={() => setShowTreeModal(false)}>
-          <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-            <View style={[styles.modalContent, { backgroundColor: settings.darkMode ? 'rgba(24,24,27,0.97)' : 'rgba(255,255,255,0.97)' }]}>
-              <View style={styles.modalHandle} />
-              <Text style={[styles.modalTitle, { color: colors.text.primary }]}>{t(lang, 'selectTree')}</Text>
-              <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
-                {TREE_TYPES.map(tree => {
-                  const isSelected = selectedTree.id === tree.id;
-                  return (
-                    <TouchableOpacity 
-                      key={tree.id} 
-                      style={[
-                        styles.treeOption, 
-                        { borderBottomColor: settings.darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
-                        isSelected && { backgroundColor: settings.darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(22, 101, 52, 0.08)' }
-                      ]}
-                      onPress={() => { setSelectedTree(tree); setShowTreeModal(false); }}
-                    >
-                      <Text style={[styles.treeOptionText, { color: colors.text.primary }, isSelected && { color: colors.primary, fontWeight: '600' }]}>
-                        {t(lang, tree.labelKey) !== tree.labelKey ? t(lang, tree.labelKey) : tree.label}
-                      </Text>
-                      {isSelected && <Ionicons name="checkmark" size={20} color={colors.primary} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </TouchableOpacity>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Vyberte druh dřeviny</Text>
+            <ScrollView>
+              {TREE_TYPES.map(tree => (
+                <TouchableOpacity key={tree.id} style={styles.treeOption} onPress={() => { setSelectedTree(tree); setShowTreeModal(false); }}>
+                  <Text style={[styles.treeOptionText, selectedTree.id === tree.id && { color: '#22C55E', fontWeight: 'bold' }]}>
+                    {tree.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'black' },
-  camera: { flex: 1 },
-  overlay: { flex: 1, justifyContent: 'space-between' },
+  container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  headerBar: { flexDirection: 'row', justifyContent: 'space-between', padding: SPACING.m, alignItems: 'center' },
-  glassCircle: { width: 40, height: 40, borderRadius: RADIUS.full, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)' },
-  glassPill: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16, borderRadius: RADIUS.full, gap: 8, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)' },
-  treeText: { color: 'white', fontWeight: '600', fontSize: 14 },
+  // Nový layout
+  topBar: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
+  topBarTitle: { color: 'white', fontSize: 18, fontWeight: '600' },
+  iconButton: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  treeSelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  treeSelectorText: { color: 'white', fontSize: 14, fontWeight: '600' },
 
-  focusContainer: { flex: 1, margin: 40, justifyContent: 'center', alignItems: 'center' },
-  frameBox: { width: '100%', aspectRatio: 1, position: 'relative' },
-  corner: { position: 'absolute', width: 24, height: 24, borderColor: 'white', borderWidth: 3 },
-  tl: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0 },
-  tr: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0 },
-  bl: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0 },
-  br: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0 },
-  hintBadge: { marginTop: SPACING.l, overflow: 'hidden', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' },
-  hintText: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '500', paddingVertical: 8, paddingHorizontal: 16 },
+  cameraWrapper: { width: SCREEN_WIDTH, height: CAMERA_HEIGHT, backgroundColor: '#111', overflow: 'hidden' },
+  cameraView: { flex: 1 },
 
-  bottomBar: { padding: SPACING.xl, paddingBottom: SPACING.xxl, alignItems: 'center' },
-  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
-  shutterOuter: { width: 72, height: 72, borderRadius: RADIUS.full, borderWidth: 4, borderColor: 'white', justifyContent: 'center', alignItems: 'center' },
-  shutterInner: { width: 56, height: 56, borderRadius: RADIUS.full, backgroundColor: 'white' },
+  bottomBar: { flex: 1, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center', paddingHorizontal: 20 },
+  sideButton: { width: 50, height: 50, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 25 },
+  
+  shutterOuter: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: 'white', justifyContent: 'center', alignItems: 'center' },
+  shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'white' },
 
-  previewTopBar: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', padding: SPACING.m },
-  previewBottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: SPACING.l, paddingBottom: SPACING.xl, alignItems: 'center' },
-  confirmBtn: { flexDirection: 'row', backgroundColor: '#2F5D3A', paddingVertical: 16, paddingHorizontal: 32, borderRadius: RADIUS.full, alignItems: 'center', gap: 12 },
+  instructionText: { position: 'absolute', top: 20, width: '100%', textAlign: 'center', color: 'rgba(255,255,255,0.7)', fontSize: 14 },
+  confirmBtn: { flexDirection: 'row', backgroundColor: '#22C55E', paddingVertical: 16, paddingHorizontal: 32, borderRadius: 30, alignItems: 'center', gap: 10, marginTop: 30 },
   confirmBtnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
 
-  modalBg: { flex: 1, justifyContent: 'flex-end' },
-  modalContent: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.l, paddingBottom: 40 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(128,128,128,0.3)', alignSelf: 'center', marginBottom: SPACING.m },
-  modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: SPACING.m, textAlign: 'center' },
-  treeOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.m, paddingHorizontal: SPACING.s, borderBottomWidth: 1 },
-  treeOptionText: { fontSize: 16 },
+  permButton: { backgroundColor: '#22C55E', padding: 15, borderRadius: 8, marginTop: 20 },
+
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#18181B', borderRadius: 16, padding: 20 },
+  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  treeOption: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#27272A' },
+  treeOptionText: { color: 'white', fontSize: 16, textAlign: 'center' }
 });
 
 export default CameraScreen;
