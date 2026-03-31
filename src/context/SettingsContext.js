@@ -10,6 +10,7 @@ const defaultSettings = {
   avatarUri: null,
   language: 'cs',
   darkMode: false,
+  replicateApiKey: '',
 };
 
 const SettingsContext = createContext(undefined);

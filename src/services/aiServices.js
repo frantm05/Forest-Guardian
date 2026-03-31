@@ -3,372 +3,375 @@ import { loadTensorflowModel } from 'react-native-fast-tflite';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as jpeg from 'jpeg-js';
 import { Buffer } from 'buffer';
-
-export const DETECTION_MODES = {
-  SEGMENTATION: 'segmentation',
-};
+if (typeof global.Buffer === 'undefined') global.Buffer = Buffer;
 
 export const TREE_TYPES = [
+  { id: 'auto', label: 'Automatická detekce' },
   { id: 'spruce', label: 'Smrk ztepilý (Picea abies)' },
   { id: 'larch', label: 'Modřín opadavý (Larix decidua)' },
   { id: 'pine', label: 'Borovice lesní (Pinus sylvestris)' },
-  { id: 'unknown', label: 'Neznámý druh' },
 ];
 
-const PEST_CLASSES = ['Lýkožrout modřínový', 'Lýkožrout lesklý', 'Lýkožrout smrkový', 'Zdravé dřevo / Pozadí'];
+// YOLOv8-seg class names — must match data.yaml order from RoboFlow export
+// Model output [1,38,8400]: nc = 38 − 4(bbox) − 32(mask coeffs) = 2
+// Třídy odpovídají data.yaml z RoboFlow datasetu "pozerky" (abecedně)
+const PEST_CLASSES = ['Ips cembrae', 'Pityogenes chalcographus'];
 
-let mobileNetModel = null;
-let samEncoder = null;
-let samDecoder = null;
-
-export const initModel = async () => {
-  if (!mobileNetModel) {
-    console.log("Načítám nový MobileNetV3-Large mozek...");
-    mobileNetModel = await loadTensorflowModel(require('./../assets/models/forest_guardian_model.tflite'));
-  }
-  if (!samEncoder) {
-    console.log("Načítám Qualcomm SAM Encoder...");
-    samEncoder = await loadTensorflowModel(require('./../assets/models/mobilesam-mobilesamencoder.tflite'));
-  }
-  if (!samDecoder) {
-    console.log("Načítám Qualcomm SAM Decoder...");
-    samDecoder = await loadTensorflowModel(require('./../assets/models/mobilesam-mobilesamdecoder.tflite'));
-  }
-  return { mobileNetModel, samEncoder, samDecoder };
+// České názvy pro zobrazení v UI
+const PEST_LABELS = {
+  'Ips cembrae': 'Lýkožrout modřínový (Ips cembrae)',
+  'Pityogenes chalcographus': 'Lýkožrout lesklý (Pityogenes chalcographus)',
 };
 
-// Pomocná funkce pro výpočet velikosti tenzoru (ošetřuje i záporné batch sizes jako -1)
-const getTensorSize = (shape) => shape.reduce((a, b) => Math.max(1, a) * Math.max(1, b), 1);
+const YOLO_INPUT_SIZE = 640;
+const YOLO_CONF_THRESHOLD = 0.25;
+const YOLO_IOU_THRESHOLD = 0.45;
+const YOLO_NUM_MASK_COEFFS = 32; // YOLOv8-seg mask prototype count
+const YOLO_MASK_THRESHOLD = 0.5;
 
-export const analyzeImage = async (imageUri, treeType, samBox) => {
-  try {
-    const { mobileNetModel, samEncoder, samDecoder } = await initModel();
-    let mobileNetInput = null;
-    let samMaskUriResult = null;
+// Mapování škůdce → hostitelský strom
+const PEST_HOST_TREES = {
+  'Ips cembrae': ['Modřín'],
+  'Pityogenes chalcographus': ['Smrk', 'Borovice', 'Modřín'],
+};
 
-    console.log("=== START DYNAMICKÉ AI PIPELINE ===");
+const TREE_ID_TO_NAME = {
+  'spruce': 'Smrk',
+  'larch': 'Modřín',
+  'pine': 'Borovice',
+  'auto': null,
+};
 
-    if (!samBox) throw new Error("Chybí nápověda z UI (Laso).");
+// ==========================================
+// MODEL STATE
+// ==========================================
+let yoloModel = null;
 
-    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-    const buildFallbackMobileNetInput = async () => {
-      const targetSize = 800;
-      const baseImg = await manipulateAsync(
-        imageUri,
-        [{ resize: { width: targetSize, height: targetSize } }],
-        { format: SaveFormat.JPEG }
-      );
+// ==========================================
+// MODEL LOADING
+// ==========================================
+const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 50));
 
-      const minX = Number.isFinite(samBox?.percentMinX) ? samBox.percentMinX : 0;
-      const minY = Number.isFinite(samBox?.percentMinY) ? samBox.percentMinY : 0;
-      const maxX = Number.isFinite(samBox?.percentMaxX) ? samBox.percentMaxX : minX + 0.1;
-      const maxY = Number.isFinite(samBox?.percentMaxY) ? samBox.percentMaxY : minY + 0.1;
+export const initModelsWithProgress = async (onProgress) => {
+  const total = 1;
 
-      const safeMinX = clamp(minX, 0, 0.999);
-      const safeMinY = clamp(minY, 0, 0.999);
-      const safeMaxX = clamp(Math.max(maxX, safeMinX + 0.01), 0.001, 1);
-      const safeMaxY = clamp(Math.max(maxY, safeMinY + 0.01), 0.001, 1);
-
-      const cropX = clamp(Math.floor(safeMinX * targetSize), 0, targetSize - 1);
-      const cropY = clamp(Math.floor(safeMinY * targetSize), 0, targetSize - 1);
-      const cropX2 = clamp(Math.ceil(safeMaxX * targetSize), cropX + 1, targetSize);
-      const cropY2 = clamp(Math.ceil(safeMaxY * targetSize), cropY + 1, targetSize);
-      const cropW = Math.max(1, cropX2 - cropX);
-      const cropH = Math.max(1, cropY2 - cropY);
-
-      const croppedImg = await manipulateAsync(
-        baseImg.uri,
-        [
-          { crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } },
-          { resize: { width: 224, height: 224 } },
-        ],
-        { format: SaveFormat.JPEG, base64: true }
-      );
-
-      const decoded = jpeg.decode(Buffer.from(croppedImg.base64, 'base64'), { useTArray: true });
-      const result = new Float32Array(224 * 224 * 3);
-      for (let i = 0, j = 0; i < decoded.data.length; i += 4, j += 3) {
-        result[j] = decoded.data[i];
-        result[j + 1] = decoded.data[i + 1];
-        result[j + 2] = decoded.data[i + 2];
-      }
-
-      return result;
-    };
-
+  if (!yoloModel) {
+    const name = 'YOLOv8 Detector';
+    onProgress?.({ step: 1, total, modelName: name, status: 'loading' });
+    await yieldToUI();
     try {
-      // ==========================================
-      // FÁZE 1: SAM ENCODER
-      // ==========================================
-      console.log("[SAM] Generuji Embeddings z fotky...");
-      const encoderSize = 1024;
+      yoloModel = await loadTensorflowModel(require('./../assets/models/best_float16.tflite'));
+      console.warn('[Models] YOLOv8 loaded. Outputs:', JSON.stringify(yoloModel.outputs?.map(o => ({ name: o.name, shape: o.shape }))));
+      onProgress?.({ step: 1, total, modelName: name, status: 'done' });
+    } catch (err) {
+      onProgress?.({ step: 1, total, modelName: name, status: 'error', error: err });
+      throw err;
+    }
+    await yieldToUI();
+  } else {
+    onProgress?.({ step: 1, total, modelName: 'YOLOv8 (cached)', status: 'done' });
+  }
 
-      const encoderImg = await manipulateAsync(
-        imageUri,
-        [{ resize: { width: encoderSize, height: encoderSize } }],
-        { compress: 0.8, format: SaveFormat.JPEG, base64: true }
-      );
+  console.warn('[Models] All loaded.');
+  return true;
+};
 
-      const decodedEncoder = jpeg.decode(Buffer.from(encoderImg.base64, 'base64'), { useTArray: true });
-      const encoderInput = new Float32Array(encoderSize * encoderSize * 3);
-      for (let i = 0, j = 0; i < decodedEncoder.data.length; i += 4, j += 3) {
-        encoderInput[j] = decodedEncoder.data[i] / 255.0;
-        encoderInput[j + 1] = decodedEncoder.data[i + 1] / 255.0;
-        encoderInput[j + 2] = decodedEncoder.data[i + 2] / 255.0;
-      }
+export const initModel = async () => {
+  if (!yoloModel) {
+    yoloModel = await loadTensorflowModel(require('./../assets/models/best_float16.tflite'));
+  }
+};
 
-      const encoderInputsArray = samEncoder.inputs.map(() => encoderInput);
-      const encoderOutput = await samEncoder.run(encoderInputsArray);
-      const imageEmbeddings = encoderOutput[0];
+export const areModelsLoaded = () => !!yoloModel;
 
-      // ==========================================
-      // FÁZE 2: STRIKTNÍ SAM DECODER (bez hádání)
-      // ==========================================
-      console.log("[SAM] Osahávám Decoder a připravuji masku...");
-      console.log("[SAM] Vstupy Decoderu:", samDecoder.inputs.map(inp => ({
-        name: inp?.name,
-        shape: inp?.shape,
-        dtype: inp?.dataType ?? inp?.dtype ?? inp?.type,
-      })));
-      const pt1X = samBox.percentMinX * encoderSize;
-      const pt1Y = samBox.percentMinY * encoderSize;
-      const pt2X = samBox.percentMaxX * encoderSize;
-      const pt2Y = samBox.percentMaxY * encoderSize;
+// ==========================================
+// YOLOv8-SEG INFERENCE PIPELINE
+// ==========================================
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-      const createTypedTensor = (inp, size, fillValue = 0) => {
-        const dtype = String(inp?.dataType || inp?.dtype || inp?.type || '').toLowerCase();
-        const tensor = dtype.includes('int') ? new Int32Array(size) : new Float32Array(size);
-        if (fillValue !== 0) tensor.fill(fillValue);
-        return tensor;
-      };
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 
-      const decoderInputsArray = [];
-      let hasEmbedding = false;
-      let hasCoords = false;
-      let hasLabels = false;
-      let hasMaskInput = false;
-      let hasHasMaskInput = false;
-      let unsupportedInput = null;
+const computeIoU = (a, b) => {
+  const x1 = Math.max(a[0], b[0]);
+  const y1 = Math.max(a[1], b[1]);
+  const x2 = Math.min(a[2], b[2]);
+  const y2 = Math.min(a[3], b[3]);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const areaA = (a[2] - a[0]) * (a[3] - a[1]);
+  const areaB = (b[2] - b[0]) * (b[3] - b[1]);
+  return inter / (areaA + areaB - inter + 1e-6);
+};
 
-      for (const inp of samDecoder.inputs) {
-        const name = String(inp?.name || '').toLowerCase();
-        const shape = Array.isArray(inp?.shape) ? inp.shape : [];
-        const size = getTensorSize(shape.length > 0 ? shape : [1]);
-        const rank = shape.length;
-
-        if (name.includes('embed') || size === 256 * 64 * 64) {
-          decoderInputsArray.push(imageEmbeddings);
-          hasEmbedding = true;
-          continue;
-        }
-
-        if (name.includes('coord') || name.includes('point_coords') || (rank >= 2 && size === 4)) {
-          const coords = createTypedTensor(inp, size);
-          if (size >= 4) {
-            coords[0] = pt1X;
-            coords[1] = pt1Y;
-            coords[2] = pt2X;
-            coords[3] = pt2Y;
-          } else if (size >= 2) {
-            coords[0] = (pt1X + pt2X) / 2;
-            coords[1] = (pt1Y + pt2Y) / 2;
-          }
-          decoderInputsArray.push(coords);
-          hasCoords = true;
-          continue;
-        }
-
-        if (name.includes('label') || name.includes('point_labels')) {
-          const labels = createTypedTensor(inp, size);
-          if (size >= 2) {
-            labels[0] = 2;
-            labels[1] = 3;
-          } else if (size >= 1) {
-            labels[0] = 1;
-          }
-          decoderInputsArray.push(labels);
-          hasLabels = true;
-          continue;
-        }
-
-        // POZOR: Jméno 'has_mask_input' obsahuje podřetězec 'mask_input',
-        // proto musí být 'has_mask' kontrolováno jako první.
-        if (name.includes('has_mask') || (name.includes('has') && size === 1)) {
-          decoderInputsArray.push(createTypedTensor(inp, size));
-          hasHasMaskInput = true;
-          continue;
-        }
-
-        if (name.includes('mask_input') || (rank >= 3 && size === 256 * 256)) {
-          decoderInputsArray.push(createTypedTensor(inp, size));
-          hasMaskInput = true;
-          continue;
-        }
-
-        if (name.includes('orig') || name.includes('im_size') || name.includes('image_size')) {
-          const imageSizeInput = createTypedTensor(inp, size);
-          if (size >= 2) {
-            imageSizeInput[0] = encoderSize;
-            imageSizeInput[1] = encoderSize;
-          }
-          decoderInputsArray.push(imageSizeInput);
-          continue;
-        }
-
-        unsupportedInput = `${inp?.name || 'unknown'} (${JSON.stringify(shape)})`;
+const nms = (detections, iouThreshold) => {
+  detections.sort((a, b) => b.confidence - a.confidence);
+  const kept = [];
+  for (const det of detections) {
+    let dominated = false;
+    for (const k of kept) {
+      if (computeIoU(det.bbox, k.bbox) > iouThreshold) {
+        dominated = true;
         break;
       }
+    }
+    if (!dominated) kept.push(det);
+  }
+  return kept;
+};
 
-      if (unsupportedInput) {
-        throw new Error(`Neznámý vstup Decoderu: ${unsupportedInput}`);
-      }
-      if (!hasEmbedding || !hasCoords || !hasLabels || !hasMaskInput || !hasHasMaskInput) {
-        throw new Error('Decoder kontrakt není kompatibilní (chybí povinné vstupy).');
-      }
+/**
+ * Parse YOLOv8-seg TFLite output.
+ * Output 0: [1, 4+nc+nm, N] — detections (column-major, standard Ultralytics).
+ * nm = YOLO_NUM_MASK_COEFFS (32). nc is computed from shape.
+ */
+const parseYoloSegOutput = (rawDetections, detShape, protoShape) => {
+  // detShape is e.g. [1, 38, 8400], protoShape e.g. [1, 160, 160, 32]
+  const rowSize = detShape[1];
+  const N = detShape[2];
+  // nm (mask coefficients) comes from the prototype tensor's last dimension
+  const nm = protoShape ? protoShape[protoShape.length - 1] : YOLO_NUM_MASK_COEFFS;
+  const nc = rowSize - 4 - nm;
 
-      const decoderOutput = await samDecoder.run(decoderInputsArray);
-      const maskOutput = decoderOutput?.[0];
-      if (!maskOutput || !maskOutput.length) {
-        throw new Error('Decoder nevrátil platnou masku.');
-      }
+  console.warn(`[YOLO-parse] rowSize=${rowSize}, N=${N}, nm=${nm}, nc=${nc}`);
 
-      // ==========================================
-      // FÁZE 3: ZČERNĚNÍ A OŘEZ (Čistý JS)
-      // ==========================================
-      console.log("[JS Engine] Aplikuji masku...");
-      const maskSize = 256;
-      const maskImg = await manipulateAsync(
-        imageUri,
-        [{ resize: { width: maskSize, height: maskSize } }],
-        { format: SaveFormat.JPEG, base64: true }
-      );
-      const decodedMaskImg = jpeg.decode(Buffer.from(maskImg.base64, 'base64'), { useTArray: true });
-      const pixels256 = decodedMaskImg.data;
+  if (nc <= 0) {
+    console.warn(`[YOLO] Cannot parse: nc=${nc} (shape ${JSON.stringify(detShape)})`);
+    return [];
+  }
 
-      let minX = maskSize;
-      let minY = maskSize;
-      let maxX = 0;
-      let maxY = 0;
+  const detections = [];
 
-      for (let y = 0; y < maskSize; y++) {
-        for (let x = 0; x < maskSize; x++) {
-          const idx = y * maskSize + x;
-          if (maskOutput[idx] > 0.0) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          } else {
-            const pIdx = idx * 4;
-            pixels256[pIdx] = 0;
-            pixels256[pIdx + 1] = 0;
-            pixels256[pIdx + 2] = 0;
-          }
-        }
-      }
+  for (let i = 0; i < N; i++) {
+    // Column-major: value at (row, col) = rawDetections[row * N + col]
+    const cx = rawDetections[0 * N + i];
+    const cy = rawDetections[1 * N + i];
+    const w  = rawDetections[2 * N + i];
+    const h  = rawDetections[3 * N + i];
 
-      if (maxX < minX) {
-        throw new Error('Decoder vrátil prázdnou masku.');
-      }
-
-      // Zakódujeme maskovaný obrázek zpět do JPEG pro zobrazení v UI
-      let samMaskUri = null;
-      try {
-        const maskJpegEncoded = jpeg.encode(
-          { width: maskSize, height: maskSize, data: Buffer.from(pixels256) },
-          80
-        );
-        samMaskUri = `data:image/jpeg;base64,${Buffer.from(maskJpegEncoded.data).toString('base64')}`;
-      } catch (encodeErr) {
-        console.warn('[Mask] Nelze zakódovat maskovaný obrázek:', encodeErr?.message);
-      }
-      samMaskUriResult = samMaskUri;
-
-      const cropX = clamp(minX, 0, maskSize - 1);
-      const cropY = clamp(minY, 0, maskSize - 1);
-      const cropW = Math.max(1, clamp(maxX - minX, 1, maskSize - cropX));
-      const cropH = Math.max(1, clamp(maxY - minY, 1, maskSize - cropY));
-
-      const netSize = 224;
-      mobileNetInput = new Float32Array(netSize * netSize * 3);
-      for (let y = 0; y < netSize; y++) {
-        for (let x = 0; x < netSize; x++) {
-          const srcX = cropX + Math.floor((x / netSize) * cropW);
-          const srcY = cropY + Math.floor((y / netSize) * cropH);
-          const srcIdx = (srcY * maskSize + srcX) * 4;
-          const dstIdx = (y * netSize + x) * 3;
-          mobileNetInput[dstIdx] = pixels256[srcIdx];
-          mobileNetInput[dstIdx + 1] = pixels256[srcIdx + 1];
-          mobileNetInput[dstIdx + 2] = pixels256[srcIdx + 2];
-        }
-      }
-    } catch (samStageError) {
-      console.warn('[Fallback] SAM Decoder stage přeskočen:', samStageError?.message || samStageError);
-      mobileNetInput = await buildFallbackMobileNetInput();
+    // Class confidences
+    let maxConf = 0, maxClassIdx = 0;
+    for (let c = 0; c < nc; c++) {
+      const conf = rawDetections[(4 + c) * N + i];
+      if (conf > maxConf) { maxConf = conf; maxClassIdx = c; }
     }
 
-    // ==========================================
-    // FÁZE 4: DYNAMICKÝ MOBILENET KLASIFIKÁTOR
-    // ==========================================
-    console.log("[MobileNet] Posuzuji čistý vyříznutý požerek...");
-    
-    let treeVector = [0, 0, 0]; // Neznámý strom (Sama se rozhodne jen z obrazu)
-    if (treeType === 'larch') treeVector = [1, 0, 0];
-    else if (treeType === 'spruce') treeVector = [0, 1, 0];
-    else if (treeType === 'pine') treeVector = [0, 0, 1];
+    if (maxConf < YOLO_CONF_THRESHOLD) continue;
 
-    const treeInput = new Float32Array(treeVector);
-    
-    // Zaručíme naprostou kompatibilitu s MobileNetem (bez ohledu na pořadí vrstev)
-    let mobileNetInputsArray = [];
-    for (const inp of mobileNetModel.inputs) {
-      if (inp.shape.length === 4) {
-        mobileNetInputsArray.push(mobileNetInput);
-      } else {
-        mobileNetInputsArray.push(treeInput);
+    // Mask coefficients (nm values)
+    const maskCoeffs = new Float32Array(nm);
+    for (let m = 0; m < nm; m++) {
+      maskCoeffs[m] = rawDetections[(4 + nc + m) * N + i];
+    }
+
+    // Normalize bbox to [0,1]
+    const x1 = (cx - w / 2) / YOLO_INPUT_SIZE;
+    const y1 = (cy - h / 2) / YOLO_INPUT_SIZE;
+    const x2 = (cx + w / 2) / YOLO_INPUT_SIZE;
+    const y2 = (cy + h / 2) / YOLO_INPUT_SIZE;
+
+    detections.push({
+      bbox: [clamp(x1, 0, 1), clamp(y1, 0, 1), clamp(x2, 0, 1), clamp(y2, 0, 1)],
+      confidence: maxConf,
+      classIndex: maxClassIdx,
+      className: maxClassIdx < PEST_CLASSES.length ? PEST_CLASSES[maxClassIdx] : `class_${maxClassIdx}`,
+      maskCoeffs,
+    });
+  }
+
+  return nms(detections, YOLO_IOU_THRESHOLD);
+};
+
+/**
+ * Generate instance segmentation mask for a detection from mask prototypes.
+ * Prototypes: [1, protoH, protoW, nm] (e.g. [1, 160, 160, 32]).
+ * Returns a binary mask at (protoH × protoW) resolution.
+ */
+const generateInstanceMask = (maskCoeffs, protoData, protoH, protoW, nm = YOLO_NUM_MASK_COEFFS) => {
+  const mask = new Float32Array(protoH * protoW);
+
+  for (let y = 0; y < protoH; y++) {
+    for (let x = 0; x < protoW; x++) {
+      let sum = 0;
+      for (let m = 0; m < nm; m++) {
+        // Proto layout [1, H, W, nm]: index = y * W * nm + x * nm + m
+        sum += maskCoeffs[m] * protoData[y * protoW * nm + x * nm + m];
+      }
+      mask[y * protoW + x] = sigmoid(sum) > YOLO_MASK_THRESHOLD ? 1.0 : 0.0;
+    }
+  }
+
+  // Crop mask to detection bbox (pixels outside bbox → 0)
+  return mask;
+};
+
+/**
+ * Crop an instance mask to its detection bounding box.
+ */
+const cropMaskToBbox = (mask, protoH, protoW, bbox) => {
+  const [bx1, by1, bx2, by2] = bbox;
+  const sx = Math.floor(bx1 * protoW);
+  const ex = Math.ceil(bx2 * protoW);
+  const sy = Math.floor(by1 * protoH);
+  const ey = Math.ceil(by2 * protoH);
+
+  for (let y = 0; y < protoH; y++) {
+    for (let x = 0; x < protoW; x++) {
+      if (x < sx || x > ex || y < sy || y > ey) {
+        mask[y * protoW + x] = 0;
       }
     }
+  }
+  return mask;
+};
 
-    const classOutput = await mobileNetModel.run(mobileNetInputsArray);
-    const probabilities = classOutput[0];
-    
-    let maxProb = 0;
-    let maxIndex = 0;
-    for (let i = 0; i < probabilities.length; i++) {
-      if (probabilities[i] > maxProb) {
-        maxProb = probabilities[i];
-        maxIndex = i;
-      }
+/**
+ * Run YOLOv8-seg on an image.
+ * Returns { detections, protoData, protoH, protoW } where each detection
+ * includes maskCoeffs that can be combined with protoData.
+ */
+const runYoloDetection = async (imageUri) => {
+  if (!yoloModel) throw new Error('YOLO model not loaded');
+
+  const resized = await manipulateAsync(
+    imageUri,
+    [{ resize: { width: YOLO_INPUT_SIZE, height: YOLO_INPUT_SIZE } }],
+    { format: SaveFormat.JPEG, base64: true }
+  );
+
+  const decoded = jpeg.decode(Buffer.from(resized.base64, 'base64'), { useTArray: true });
+  const pixels = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE;
+  const input = new Float32Array(pixels * 3);
+  for (let i = 0, j = 0; i < decoded.data.length; i += 4, j += 3) {
+    input[j]     = decoded.data[i]     / 255.0;
+    input[j + 1] = decoded.data[i + 1] / 255.0;
+    input[j + 2] = decoded.data[i + 2] / 255.0;
+  }
+
+  const output = await yoloModel.run([input]);
+
+  // Output 0: detections [1, 4+nc+32, N]
+  const detShape = yoloModel.outputs?.[0]?.shape || [1, 38, 8400];
+  // Output 1: mask prototypes [1, protoH, protoW, nm]
+  const protoShape = yoloModel.outputs?.[1]?.shape || [1, 160, 160, 32];
+  const protoH = protoShape[1];
+  const protoW = protoShape[2];
+  const protoData = output[1]; // Float32Array of [1, 160, 160, 32]
+
+  console.warn('[YOLO] Det shape:', JSON.stringify(detShape), 'Proto shape:', JSON.stringify(protoShape));
+
+  const nm = protoShape[protoShape.length - 1];
+  const detections = parseYoloSegOutput(output[0], detShape, protoShape);
+  console.warn(`[YOLO] ${detections.length} detections after NMS`);
+
+  return { detections, protoData, protoH, protoW, nm };
+};
+
+// ==========================================
+// TREE-TYPE FILTERING (processAiResults)
+// ==========================================
+/**
+ * Filter and re-rank AI predictions based on the selected tree species.
+ * If treeType is 'auto' (user doesn't know), predictions are returned as-is.
+ * Otherwise, penalize pests that don't live on the selected tree.
+ */
+const processAiResults = (predictions, treeType) => {
+  const treeName = TREE_ID_TO_NAME[treeType] || null;
+
+  // Auto-detection: trust the model fully
+  if (!treeName) return predictions;
+
+  const filtered = predictions.map(prediction => {
+    const allowedTrees = PEST_HOST_TREES[prediction.className];
+    // Penalize pest that doesn't live on the selected tree
+    if (allowedTrees && !allowedTrees.includes(treeName)) {
+      return { ...prediction, confidence: prediction.confidence * 0.1 };
     }
+    return prediction;
+  });
 
-    console.log(`[Výsledek MobileNet]: ${PEST_CLASSES[maxIndex]} s jistotou ${(maxProb*100).toFixed(1)}%`);
+  return filtered.sort((a, b) => b.confidence - a.confidence);
+};
 
-    if (PEST_CLASSES[maxIndex] === 'Zdravé dřevo / Pozadí') {
-      return {
-        type: 'segmentation',
-        confidence: maxProb,
-        label: 'Zdravá kůra / Nejde o škůdce',
-        severity: 'info',
-        recommendation: 'Zakroužkovaný objekt neodpovídá škůdci. Model vyhodnotil, že se jedná pravděpodobně o přirozenou anomálii kůry, suk nebo stín.',
-        treeContext: treeType,
-        maskUri: samMaskUriResult,
-      };
+// ==========================================
+// INSTANCE MASK → JPEG OVERLAY
+// ==========================================
+/**
+ * Encode a YOLO instance mask (protoH×protoW) as a colored JPEG overlay URI.
+ */
+const instanceMaskToUri = (instMask, protoH, protoW, color = { r: 34, g: 197, b: 94 }) => {
+  const jpegPixels = new Uint8Array(protoH * protoW * 4);
+  for (let i = 0; i < protoH * protoW; i++) {
+    if (instMask[i] > 0) {
+      jpegPixels[i * 4] = color.r;
+      jpegPixels[i * 4 + 1] = color.g;
+      jpegPixels[i * 4 + 2] = color.b;
+      jpegPixels[i * 4 + 3] = 255;
+    } else {
+      jpegPixels[i * 4 + 3] = 255;
     }
+  }
+  const encoded = jpeg.encode({ width: protoW, height: protoH, data: Buffer.from(jpegPixels) }, 80);
+  return `data:image/jpeg;base64,${Buffer.from(encoded.data).toString('base64')}`;
+};
 
+// ==========================================
+// MAIN API — detectPests (automatic YOLOv8-seg detection)
+// ==========================================
+/**
+ * Full auto-detection + segmentation on the image.
+ * The model finds pest damage areas itself and generates masks.
+ * Returns result object ready for AnalysisScreen.
+ */
+export const detectPests = async (imageUri, treeType = 'auto') => {
+  if (!yoloModel) throw new Error('YOLO model not loaded');
+
+  const { detections: rawDetections, protoData, protoH, protoW, nm } = await runYoloDetection(imageUri);
+  const filtered = processAiResults(rawDetections, treeType);
+
+  if (filtered.length === 0) {
     return {
-      type: 'segmentation',
-      confidence: maxProb,
-      label: PEST_CLASSES[maxIndex],
-      severity: maxProb > 0.60 ? 'critical' : 'warning',
-      recommendation: `Škůdce detekován. Očekávaný druh na zvolené dřevině.`,
+      type: 'detection',
+      confidence: 1.0,
+      label: 'Zdravá kůra / Nejde o škůdce',
+      severity: 'info',
+      recommendation: 'V obraze nebylo detekováno žádné napadení kůrovcem.',
       treeContext: treeType,
-      maskUri: samMaskUriResult,
+      maskUri: null,
+      detections: [],
     };
+  }
 
+  // Generate instance masks for all detections (limit to top 10)
+  const withMasks = filtered.slice(0, 10).map(det => {
+    try {
+      const instMask = generateInstanceMask(det.maskCoeffs, protoData, protoH, protoW, nm);
+      cropMaskToBbox(instMask, protoH, protoW, det.bbox);
+      return { ...det, maskUri: instanceMaskToUri(instMask, protoH, protoW) };
+    } catch {
+      return { ...det, maskUri: null };
+    }
+  });
+
+  const best = withMasks[0];
+  const bestLabel = PEST_LABELS[best.className] || best.className;
+  return {
+    type: 'detection',
+    confidence: best.confidence,
+    label: bestLabel,
+    severity: best.confidence > 0.60 ? 'critical' : 'warning',
+    recommendation: `Detekováno ${withMasks.length}× poškození kůry. Nejsilnější: ${bestLabel} (${Math.round(best.confidence * 100)} %).`,
+    treeContext: treeType,
+    maskUri: best.maskUri,
+    detections: withMasks,
+  };
+};
+
+// Legacy wrapper for backward compatibility
+export const analyzeImage = async (imageUri, treeType) => {
+  try {
+    await initModel();
+    return await detectPests(imageUri, treeType);
   } catch (error) {
     console.error("Kritická chyba v AI pipeline:", error);
     return null;
   }
 };
-
-export const testLoadModel = async () => { return await initModel(); };

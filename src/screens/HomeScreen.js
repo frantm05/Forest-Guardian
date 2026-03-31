@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,7 +11,6 @@ import { ROUTES } from '../constants/routes';
 import { getHistory } from '../services/storageServices';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
-import { testLoadModel } from '../services/aiServices'; // import funkce pro testování načítání modelu
 
 const HomeScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
@@ -27,13 +26,6 @@ const HomeScreen = ({ navigation }) => {
     if (severity === 'warning') return 'medium';
     return severity || 'low';
   };
-
-  useEffect(() => {
-    const initAI = async () => {
-      await testLoadModel();
-    };
-    initAI();
-  }, []);
 
 
   useFocusEffect(

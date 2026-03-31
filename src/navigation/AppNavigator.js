@@ -7,6 +7,7 @@ import { ROUTES } from '../constants/routes';
 import { COLORS } from '../constants/theme';
 
 // Import obrazovek
+import LoadingScreen from '../screens/LoadingScreen';
 import HomeScreen from '../screens/HomeScreen';
 import CameraScreen from '../screens/CameraScreen';
 import AnalysisScreen from '../screens/AnalysisScreen';
@@ -19,7 +20,7 @@ const AppNavigator = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName={ROUTES.HOME}
+        initialRouteName={ROUTES.LOADING}
         screenOptions={{
           headerShown: false,
           cardStyle: { backgroundColor: '#F5F6F4' },
@@ -27,6 +28,11 @@ const AppNavigator = () => {
           ...TransitionPresets.SlideFromRightIOS,
         }}
       >
+        <Stack.Screen 
+          name={ROUTES.LOADING} 
+          component={LoadingScreen}
+          options={{ gestureEnabled: false }}
+        />
         <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
         <Stack.Screen 
           name={ROUTES.CAMERA} 

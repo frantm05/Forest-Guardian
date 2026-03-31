@@ -19,17 +19,16 @@ const AnalysisScreen = ({ route, navigation }) => {
   const lang = settings.language;
   const dark = settings.darkMode;
 
-  const { imageUri, treeType, samBox } = route.params || {};
+  const { imageUri, treeType, result: precomputedResult } = route.params || {};
 
   // Fáze pipeline: 'loading' → 'result'
-  const [phase, setPhase] = useState('loading');
-  const [result, setResult] = useState(null);
+  const [phase, setPhase] = useState(precomputedResult ? 'result' : 'loading');
+  const [result, setResult] = useState(precomputedResult || null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [imageSize, setImageSize] = useState(null);
 
   const treeObj = TREE_TYPES.find(tt => tt.id === treeType);
-  const treeLabel = treeObj ? t(lang, treeObj.labelKey) : (treeType || t(lang, 'treeUnknown'));
+  const treeLabel = treeObj ? treeObj.label : (treeType || t(lang, 'treeUnknown'));
   const normalizedSeverity = result?.severity === 'critical'
     ? 'high'
     : result?.severity === 'warning'
@@ -38,6 +37,9 @@ const AnalysisScreen = ({ route, navigation }) => {
 
   // Spuštění kompletní AI pipeline při načtení obrazovky
   useEffect(() => {
+    // Skip if result was provided by SegmentationScreen
+    if (precomputedResult) return;
+
     if (!imageUri) {
       setError(t(lang, 'noImageError'));
       setPhase('result');
@@ -46,7 +48,7 @@ const AnalysisScreen = ({ route, navigation }) => {
 
     let cancelled = false;
 
-    analyzeImage(imageUri, treeType, samBox)
+    analyzeImage(imageUri, treeType)
       .then(data => {
         if (cancelled) return;
         if (!data || typeof data.confidence !== 'number') {
@@ -148,26 +150,12 @@ const AnalysisScreen = ({ route, navigation }) => {
       <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         
-        {/* IMAGE HEADER – originál s vyznačeným samBox */}
+        {/* IMAGE HEADER */}
         <View style={styles.imageHeader}>
           <Image
             source={{ uri: imageUri }}
             style={styles.mainImage}
-            onLayout={(e) => setImageSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
           />
-          {samBox && imageSize && (
-            <View
-              style={[
-                styles.regionOverlay,
-                {
-                  left: samBox.percentMinX * imageSize.width,
-                  top: samBox.percentMinY * imageSize.height,
-                  width: (samBox.percentMaxX - samBox.percentMinX) * imageSize.width,
-                  height: (samBox.percentMaxY - samBox.percentMinY) * imageSize.height,
-                },
-              ]}
-            />
-          )}
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
