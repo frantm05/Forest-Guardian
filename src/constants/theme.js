@@ -1,37 +1,40 @@
-// src/constants/theme.js
+/**
+ * @module theme
+ * @description Design tokens for colors, spacing, radii, shadows, and typography.
+ */
 
 export const COLORS = {
-  // Primární barvy z UI designu
-  primary: '#166534',    // green-800 - Hlavní lesní zelená
-  primaryLight: '#22c55e', // green-500 - Jasná zelená pro akcenty
-  primaryDark: '#052e16', // green-950 - Tmavé pozadí
-  
-  // Sekundární
-  secondary: '#f4f4f5',  // zinc-100 - Pozadí karet
-  accent: '#eab308',     // yellow-500 - Varování/Pozor
-  destructive: '#ef4444', // red-500 - Kritický stav
+  // Primary palette
+  primary: '#166534',       // green-800 — main forest green
+  primaryLight: '#22c55e',  // green-500 — bright accent
+  primaryDark: '#052e16',   // green-950 — dark background
 
-  // Stavové barvy
+  // Secondary
+  secondary: '#f4f4f5',   // zinc-100 — card background
+  accent: '#eab308',      // yellow-500 — warning
+  destructive: '#ef4444', // red-500 — critical state
+
+  // Status
   status: {
     error: '#ef4444',   // red-500
     success: '#22c55e', // green-500
   },
 
-  // Neutrální (Zinc paleta)
-  background: '#ffffff', // Čistá bílá
+  // Neutral (Zinc palette)
+  background: '#ffffff',
   surface: '#ffffff',
-  border: '#e4e4e7',     // zinc-200 - Jemné ohraničení
-  
+  border: '#e4e4e7',     // zinc-200
+
   // Text
   text: {
-    primary: '#09090b',  // zinc-950 - Hlavní text
-    secondary: '#71717a', // zinc-500 - Popisky
-    tertiary: '#a1a1aa',  // zinc-400 - Terciární text (ikony, placeholdery)
-    inverse: '#ffffff',   // Text na tmavém pozadí
+    primary: '#09090b',   // zinc-950
+    secondary: '#71717a', // zinc-500
+    tertiary: '#a1a1aa',  // zinc-400
+    inverse: '#ffffff',
   },
 };
 
-// Dark mode barvy
+// Dark mode color overrides
 export const DARK_COLORS = {
   ...COLORS,
   primary: '#22c55e',
@@ -63,7 +66,7 @@ export const RADIUS = {
   full: 999,
 };
 
-// Moderní stíny ve stylu "Shadcn/Tailwind"
+// Modern shadow presets (Shadcn/Tailwind-inspired)
 export const SHADOWS = {
   sm: {
     shadowColor: "#000",
@@ -80,7 +83,7 @@ export const SHADOWS = {
     elevation: 4,
   },
   lg: {
-    shadowColor: "#166534", // Barevný stín pro primary prvky
+    shadowColor: "#166534", // Tinted shadow for primary elements
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
@@ -98,7 +101,7 @@ export const TYPOGRAPHY = {
 };
 
 /**
- * Vrátí palette barev podle dark mode stavu.
+ * Returns the color palette matching the current theme mode.
  * @param {boolean} darkMode
  * @returns {typeof COLORS}
  */

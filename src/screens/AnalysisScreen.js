@@ -1,53 +1,56 @@
-// src/screens/AnalysisScreen.js
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, StatusBar } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { SPACING, RADIUS, SHADOWS } from '../constants/theme';
+/**
+ * @file AnalysisScreen.js
+ * @description Displays AI analysis results — clean, modern layout with
+ *              distinct flows for "no pest" (green) and "pest found" (red).
+ */
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, Image, ScrollView, TouchableOpacity,
+  ActivityIndicator, Alert, StatusBar, Modal, Animated,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { SPACING } from '../constants/theme';
+import { ROUTES } from '../constants/routes';
 import { analyzeImage, TREE_TYPES } from '../services/aiServices';
 import { saveRecord } from '../services/storageServices';
 import { saveImageLocally } from '../services/fileServices';
-import { formatConfidence } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
-
-const OVERLAY_COLOR = 'rgba(34, 197, 94, 0.35)';
-const OVERLAY_BORDER = '#22c55e';
+import { getTreeDisplayLabel } from '../utils/formatters';
+import styles from './styles/AnalysisScreen.styles';
 
 const AnalysisScreen = ({ route, navigation }) => {
   const { settings, colors } = useSettings();
+  const insets = useSafeAreaInsets();
   const lang = settings.language;
   const dark = settings.darkMode;
 
   const { imageUri, treeType, result: precomputedResult } = route.params || {};
 
-  // Fáze pipeline: 'loading' → 'result'
   const [phase, setPhase] = useState(precomputedResult ? 'result' : 'loading');
   const [result, setResult] = useState(precomputedResult || null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [photoDetailVisible, setPhotoDetailVisible] = useState(false);
+
+  // Photo detail animation
+  const detailAnim = useRef(new Animated.Value(0)).current;
 
   const treeObj = TREE_TYPES.find(tt => tt.id === treeType);
-  const treeLabel = treeObj ? treeObj.label : (treeType || t(lang, 'treeUnknown'));
-  const normalizedSeverity = result?.severity === 'critical'
-    ? 'high'
-    : result?.severity === 'warning'
-      ? 'medium'
-      : result?.severity;
+  const treeLabel = getTreeDisplayLabel(treeObj, treeType, lang);
+  const isInfo = result?.severity === 'info';
+  const isCritical = result?.severity === 'critical';
 
-  // Spuštění kompletní AI pipeline při načtení obrazovky
   useEffect(() => {
-    // Skip if result was provided by SegmentationScreen
     if (precomputedResult) return;
-
     if (!imageUri) {
       setError(t(lang, 'noImageError'));
       setPhase('result');
       return;
     }
-
     let cancelled = false;
-
     analyzeImage(imageUri, treeType)
       .then(data => {
         if (cancelled) return;
@@ -58,15 +61,25 @@ const AnalysisScreen = ({ route, navigation }) => {
         }
         setPhase('result');
       })
-      .catch(e => {
+      .catch(() => {
         if (cancelled) return;
-        console.error('Chyba při analýze:', e);
         setError(t(lang, 'analysisFailed'));
         setPhase('result');
       });
-
     return () => { cancelled = true; };
   }, [imageUri]);
+
+  const openPhotoDetail = () => {
+    setPhotoDetailVisible(true);
+    detailAnim.setValue(0);
+    Animated.spring(detailAnim, { toValue: 1, useNativeDriver: true, tension: 60, friction: 9 }).start();
+  };
+
+  const closePhotoDetail = () => {
+    Animated.timing(detailAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setPhotoDetailVisible(false);
+    });
+  };
 
   const handleSave = async () => {
     if (!result || saving) return;
@@ -78,7 +91,6 @@ const AnalysisScreen = ({ route, navigation }) => {
         { text: t(lang, 'ok'), onPress: () => navigation.popToTop() }
       ]);
     } catch (e) {
-      console.error('Chyba při ukládání záznamu:', e);
       Alert.alert(t(lang, 'error'), t(lang, 'saveFailed'));
     } finally {
       setSaving(false);
@@ -89,12 +101,12 @@ const AnalysisScreen = ({ route, navigation }) => {
   const cardBg = dark ? colors.surface : '#f9fafb';
 
   // ==========================================
-  // LOADING – probíhá AI analýza
+  // LOADING
   // ==========================================
   if (phase === 'loading') {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor: bg }]}>
-        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
+        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
         <View style={styles.loadingAnimation}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -109,10 +121,6 @@ const AnalysisScreen = ({ route, navigation }) => {
           </View>
           <View style={styles.loadingStep}>
             <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'samSegmentation')}</Text>
-          </View>
-          <View style={styles.loadingStep}>
-            <ActivityIndicator size="small" color={colors.primary} />
             <Text style={[styles.loadingStepText, { color: colors.text.secondary }]}>{t(lang, 'inference')}</Text>
           </View>
         </View>
@@ -121,16 +129,19 @@ const AnalysisScreen = ({ route, navigation }) => {
   }
 
   // ==========================================
-  // CHYBOVÝ STAV
+  // ERROR
   // ==========================================
   if (error) {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor: bg }]}>
-        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
-        <Ionicons name="alert-circle-outline" size={64} color={colors.destructive || '#ef4444'} />
-        <Text style={[styles.loadingText, { color: '#ef4444' }]}>{t(lang, 'analysisError')}</Text>
+        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+        <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+        <Text style={[styles.loadingText, { color: '#ef4444', marginTop: SPACING.m }]}>{t(lang, 'analysisError')}</Text>
         <Text style={[styles.loadingSub, { color: colors.text.secondary }]}>{error}</Text>
-        <TouchableOpacity style={[styles.primaryBtn, { marginTop: SPACING.l, width: 'auto', paddingHorizontal: SPACING.xl, backgroundColor: colors.primary }]} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={[styles.primaryBtn, { marginTop: SPACING.l, paddingHorizontal: SPACING.xl, backgroundColor: colors.primary }]}
+          onPress={() => navigation.goBack()}
+        >
           <Ionicons name="camera-outline" size={20} color="white" />
           <Text style={styles.primaryBtnText}>{t(lang, 'tryAgain')}</Text>
         </TouchableOpacity>
@@ -138,178 +149,184 @@ const AnalysisScreen = ({ route, navigation }) => {
     );
   }
 
-  // ==========================================
-  // VÝSLEDEK KLASIFIKACE
-  // ==========================================
   if (!result) return null;
 
-  const isDanger = normalizedSeverity === 'high';
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
-      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        
-        {/* IMAGE HEADER */}
-        <View style={styles.imageHeader}>
-          <Image
-            source={{ uri: imageUri }}
-            style={styles.mainImage}
-          />
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={24} color="white" />
-          </TouchableOpacity>
-          <View style={styles.badgeContainer}>
-             <View style={[styles.badge, { backgroundColor: isDanger ? '#ef4444' : colors.primaryLight }]}>
-               <Text style={styles.badgeText}>{formatConfidence(result.confidence)} {t(lang, 'match')}</Text>
-             </View>
+  // ==========================================
+  // NO PEST FOUND — clean green confirmation
+  // ==========================================
+  if (isInfo) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
+        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+        <View style={styles.infoContainer}>
+          <View style={[styles.infoIconWrap, { backgroundColor: '#dcfce7' }]}>
+            <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
+          </View>
+          <Text style={[styles.infoTitle, { color: colors.text.primary }]}>
+            {t(lang, 'noPestFound')}
+          </Text>
+          <Text style={[styles.infoSub, { color: colors.text.secondary }]}>
+            {t(lang, 'noPestFoundDesc')}
+          </Text>
+          <View style={styles.infoButtons}>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="camera-outline" size={20} color="white" />
+              <Text style={styles.primaryBtnText}>{t(lang, 'newPhoto')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryBtn, { borderColor: colors.border }]}
+              onPress={() => navigation.popToTop()}
+            >
+              <Ionicons name="home-outline" size={20} color={colors.text.primary} />
+              <Text style={[styles.secondaryBtnText, { color: colors.text.primary }]}>{t(lang, 'goHome')}</Text>
+            </TouchableOpacity>
           </View>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================
+  // PEST FOUND — red alert with details
+  // ==========================================
+  const confPercent = Math.round((result.confidence || 0) * 100);
+  const severityColor = isCritical ? '#ef4444' : '#f59e0b';
+  const severityBg = isCritical ? '#fef2f2' : '#fffbeb';
+  const severityDarkBg = isCritical ? '#451a1a' : '#452a1a';
+  const severityLabel = isCritical
+    ? (t(lang, 'criticalAlert') || 'Critical')
+    : (t(lang, 'warningAlert') || 'Warning');
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: bg }]} edges={['bottom']}>
+      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+
+        {/* IMAGE HEADER — tappable for detail */}
+        <TouchableOpacity activeOpacity={0.9} onPress={openPhotoDetail}>
+          <View style={styles.imageHeader}>
+            <Image source={{ uri: imageUri }} style={styles.mainImage} />
+            <LinearGradient colors={['transparent', bg]} style={styles.imageGradient} />
+            <TouchableOpacity style={[styles.backBtn, { top: insets.top + 8 }]} onPress={() => navigation.goBack()}>
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
 
         {/* CONTENT */}
         <View style={[styles.content, { backgroundColor: bg }]}>
-          <Text style={[styles.h2, { color: colors.text.primary }]}>{result.label}</Text>
-          <Text style={[styles.latinName, { color: colors.text.secondary }]}>
-            {result.treeContext === 'spruce' ? 'Ips typographus' : 
-             result.treeContext === 'larch' ? 'Ips cembrae' :
-             result.treeContext === 'pine' ? 'Hylobius abietis' : t(lang, 'unknownAgent')}
-          </Text>
 
-          {/* SAM MASKA – zobrazení segmentované oblasti */}
-          {result.maskUri ? (
-            <View style={[styles.maskCard, { backgroundColor: cardBg }]}>
-              <Text style={[styles.maskCardTitle, { color: colors.text.primary }]}>{t(lang, 'aiSegmentedArea')}</Text>
-              <Text style={[styles.maskCardHint, { color: colors.text.secondary }]}>{t(lang, 'aiSegmentedAreaHint')}</Text>
-              <Image
-                source={{ uri: result.maskUri }}
-                style={styles.maskImage}
-                resizeMode="contain"
-              />
-            </View>
-          ) : null}
-
-          {/* STATUS CARD */}
-          <View style={[styles.alertCard, { borderColor: isDanger ? '#ef4444' : colors.primary, backgroundColor: cardBg }]}>
-            <MaterialCommunityIcons 
-              name={isDanger ? "alert-circle" : "check-circle"} 
-              size={24} 
-              color={isDanger ? '#ef4444' : colors.primary} 
+          {/* Severity badge */}
+          <View style={[styles.statusBadge, { backgroundColor: dark ? severityDarkBg : severityBg }]}>
+            <Ionicons
+              name={isCritical ? 'warning' : 'alert-circle'}
+              size={16}
+              color={severityColor}
             />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.alertTitle, { color: isDanger ? '#ef4444' : colors.primary }]}>
-                {isDanger ? t(lang, 'highRiskDetected') : t(lang, 'lowToMediumRisk')}
-              </Text>
-              <Text style={[styles.alertBody, { color: colors.text.secondary }]}>
-                {result.recommendation}
-              </Text>
-            </View>
+            <Text style={[styles.statusBadgeText, { color: severityColor }]}>
+              {severityLabel}
+            </Text>
           </View>
 
-          {/* DETAILS */}
-          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>{t(lang, 'detectionDetails')}</Text>
-          <View style={styles.detailRow}>
-            <View style={[styles.detailItem, { backgroundColor: dark ? colors.surface : colors.secondary }]}>
-              <Text style={[styles.detailLabel, { color: colors.text.secondary }]}>{t(lang, 'detectionType')}</Text>
-              <Text style={[styles.detailValue, { color: colors.text.primary }]}>{t(lang, 'segmentation')}</Text>
-            </View>
-            <View style={[styles.detailItem, { backgroundColor: dark ? colors.surface : colors.secondary }]}>
-              <Text style={[styles.detailLabel, { color: colors.text.secondary }]}>{t(lang, 'treeSpecies')}</Text>
-              <Text style={[styles.detailValue, { color: colors.text.primary }]}>{treeLabel}</Text>
-            </View>
-          </View>
-          <View style={styles.detailRow}>
-            <View style={[styles.detailItem, { backgroundColor: dark ? colors.surface : colors.secondary }]}>
-              <Text style={[styles.detailLabel, { color: colors.text.secondary }]}>{t(lang, 'reliability')}</Text>
-              <Text style={[styles.detailValue, { color: colors.text.primary }]}>{formatConfidence(result.confidence)}</Text>
-            </View>
-            <View style={[styles.detailItem, { backgroundColor: dark ? colors.surface : colors.secondary }]}>
-              <Text style={[styles.detailLabel, { color: colors.text.secondary }]}>{t(lang, 'severityLabel')}</Text>
-              <Text style={[styles.detailValue, {
-                color: normalizedSeverity === 'high' ? '#ef4444' : 
-                       normalizedSeverity === 'medium' ? '#eab308' : colors.primary
-              }]}>
-                {normalizedSeverity === 'high' ? t(lang, 'high') : normalizedSeverity === 'medium' ? t(lang, 'medium') : t(lang, 'low')}
-              </Text>
-            </View>
+          {/* Title */}
+          <View style={styles.titleBlock}>
+            <Text style={[styles.h2, { color: colors.text.primary }]}>{result.label}</Text>
+            <Text style={[styles.latinName, { color: colors.text.secondary }]}>
+              {treeLabel}
+            </Text>
           </View>
 
-          {/* ACTIONS */}
-          <View style={styles.actions}>
-            <TouchableOpacity 
-              style={[styles.primaryBtn, { backgroundColor: colors.primary }, saving && { opacity: 0.6 }]} 
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <>
-                  <Text style={styles.primaryBtnText}>{t(lang, 'saveRecord')}</Text>
-                  <Ionicons name="save-outline" size={20} color="white" />
-                </>
-              )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={[styles.secondaryBtn, { borderColor: colors.border }]} onPress={() => navigation.goBack()}>
-              <Text style={[styles.secondaryBtnText, { color: colors.text.primary }]}>{t(lang, 'newPhoto')}</Text>
-            </TouchableOpacity>
+          {/* Confidence bar */}
+          <View style={styles.confidenceRow}>
+            <Text style={[styles.confidenceLabel, { color: colors.text.secondary }]}>
+              {t(lang, 'yoloConfidence')}
+            </Text>
+            <Text style={[styles.confidenceValue, { color: severityColor }]}>
+              {confPercent}%
+            </Text>
+          </View>
+          <View style={[styles.confidenceBarBg, { backgroundColor: dark ? '#27272a' : '#f4f4f5' }]}>
+            <View style={[styles.confidenceBarFill, { width: `${confPercent}%`, backgroundColor: severityColor }]} />
           </View>
 
+          {/* Detection list */}
+          {result.detections?.length > 0 && (
+            <View style={[styles.detectionCard, { backgroundColor: cardBg }]}>
+              <View style={styles.detectionCardHeader}>
+                <Ionicons name="bug-outline" size={18} color={severityColor} />
+                <Text style={[styles.detectionCardTitle, { color: colors.text.primary }]}>
+                  {t(lang, 'detectionDetails')} ({result.detections.length})
+                </Text>
+              </View>
+              {result.detections.map((det, i) => (
+                <View
+                  key={i}
+                  style={[styles.detectionItem, { borderBottomColor: colors.border },
+                    i === result.detections.length - 1 && { borderBottomWidth: 0 }]}
+                >
+                  <View style={styles.detectionItemLeft}>
+                    <View style={[styles.detectionDot, { backgroundColor: severityColor }]} />
+                    <Text style={[styles.detectionItemName, { color: colors.text.primary }]} numberOfLines={1}>
+                      {det.className}
+                    </Text>
+                  </View>
+                  <Text style={[styles.detectionItemConf, { color: severityColor }]}>
+                    {Math.round(det.confidence * 100)}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      {/* BOTTOM ACTIONS */}
+      <View style={[styles.bottomBar, { backgroundColor: bg, borderTopColor: colors.border }]}>
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: colors.primary }, saving && { opacity: 0.6 }]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <>
+              <Ionicons name="save-outline" size={20} color="white" />
+              <Text style={styles.primaryBtnText}>{t(lang, 'saveRecord')}</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.secondaryBtn, { borderColor: colors.border }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="camera-outline" size={20} color={colors.text.primary} />
+          <Text style={[styles.secondaryBtnText, { color: colors.text.primary }]}>{t(lang, 'newPhoto')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* PHOTO DETAIL OVERLAY */}
+      <Modal visible={photoDetailVisible} transparent animationType="none" onRequestClose={closePhotoDetail}>
+        <Animated.View style={[styles.overlayBg, { opacity: detailAnim }]}>
+          <TouchableOpacity style={[styles.overlayCloseBtn, { top: insets.top + 10 }]} onPress={closePhotoDetail}>
+            <Ionicons name="close" size={24} color="white" />
+          </TouchableOpacity>
+          <Animated.Image
+            source={{ uri: imageUri }}
+            style={[styles.overlayImage, {
+              transform: [
+                { scale: detailAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) },
+              ],
+            }]}
+            resizeMode="contain"
+          />
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl },
-  loadingText: { fontSize: 20, fontWeight: '600', marginTop: SPACING.m },
-  loadingSub: { marginTop: SPACING.s, textAlign: 'center' },
-  loadingAnimation: { marginBottom: SPACING.s },
-  loadingSteps: { marginTop: SPACING.xl, gap: SPACING.m },
-  loadingStep: { flexDirection: 'row', alignItems: 'center', gap: SPACING.s },
-  loadingStepText: { fontSize: 14 },
-
-  imageHeader: { height: 300, width: '100%', position: 'relative' },
-  mainImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  backBtn: { position: 'absolute', top: 20, left: 20, width: 40, height: 40, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: RADIUS.full, justifyContent: 'center', alignItems: 'center' },
-  badgeContainer: { position: 'absolute', bottom: 20, left: 20, flexDirection: 'row' },
-  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.full },
-  badgeText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-
-  regionOverlay: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: OVERLAY_BORDER,
-    backgroundColor: OVERLAY_COLOR,
-    borderRadius: 4,
-  },
-
-  content: { padding: SPACING.l, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, marginTop: -20 },
-  h2: { fontSize: 24, fontWeight: '600', letterSpacing: -0.5 },
-  latinName: { fontSize: 16, lineHeight: 24, fontStyle: 'italic', marginBottom: SPACING.l },
-
-  maskCard: { borderRadius: RADIUS.m, padding: SPACING.m, marginBottom: SPACING.l },
-  maskCardTitle: { fontWeight: '700', fontSize: 16, marginBottom: 4 },
-  maskCardHint: { fontSize: 13, lineHeight: 18, marginBottom: SPACING.s },
-  maskImage: { width: '100%', height: 200, borderRadius: RADIUS.s },
-
-  alertCard: { flexDirection: 'row', gap: 12, padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1, marginBottom: SPACING.xl, alignItems: 'flex-start' },
-  alertTitle: { fontWeight: '700', fontSize: 16, marginBottom: 6 },
-  alertBody: { fontSize: 14, lineHeight: 20 },
-
-  sectionTitle: { fontSize: 20, fontWeight: '600', marginBottom: SPACING.m },
-  detailRow: { flexDirection: 'row', gap: SPACING.m, marginBottom: SPACING.m },
-  detailItem: { flex: 1, padding: SPACING.m, borderRadius: RADIUS.m },
-  detailLabel: { fontSize: 12, marginBottom: 4 },
-  detailValue: { fontWeight: '600' },
-
-  actions: { gap: SPACING.m, marginTop: SPACING.m },
-  primaryBtn: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: SPACING.m, borderRadius: RADIUS.m, gap: 8, ...SHADOWS.md },
-  primaryBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  secondaryBtn: { justifyContent: 'center', alignItems: 'center', padding: SPACING.m, borderRadius: RADIUS.m, borderWidth: 1 },
-  secondaryBtnText: { fontWeight: '600' },
-});
 
 export default AnalysisScreen;

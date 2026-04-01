@@ -1,10 +1,13 @@
+/**
+ * @module fileServices
+ * @description Local file system operations for image storage, resizing, and cleanup.
+ */
 import { File, Directory, Paths } from 'expo-file-system/next';
-import * as ImageManipulator from 'expo-image-manipulator';
 
 const IMAGES_DIR_NAME = 'forest_guardian';
 
 /**
- * Získá referenci na složku obrázků a zajistí, že existuje.
+ * Returns a reference to the images directory, creating it if necessary.
  * @returns {Directory}
  */
 const getImagesDirectory = () => {
@@ -16,9 +19,9 @@ const getImagesDirectory = () => {
 };
 
 /**
- * Uloží obrázek do lokálního úložiště a vrátí novou cestu.
- * @param {string} uri - Dočasná URI fotky z kamery
- * @returns {Promise<string>} - Trvalá cesta k souboru
+ * Copies a temporary camera image to persistent local storage.
+ * @param {string} uri - Temporary photo URI from the camera
+ * @returns {Promise<string>} Permanent file path
  */
 export const saveImageLocally = async (uri) => {
   try {
@@ -29,14 +32,14 @@ export const saveImageLocally = async (uri) => {
     sourceFile.copy(destination);
     return destination.uri;
   } catch (e) {
-    console.error('Chyba při ukládání obrázku:', e);
+    console.error('Failed to save image:', e);
     return uri;
   }
 };
 
 /**
- * Smaže obrázek z lokálního úložiště.
- * @param {string} uri - Cesta k souboru
+ * Deletes an image from local storage.
+ * @param {string} uri - File path to delete
  */
 export const deleteImage = async (uri) => {
   try {
@@ -45,32 +48,12 @@ export const deleteImage = async (uri) => {
       file.delete();
     }
   } catch (e) {
-    console.error('Chyba při mazání obrázku:', e);
+    console.error('Failed to delete image:', e);
   }
 };
 
 /**
- * Zmenší obrázek pro AI analýzu.
- * @param {string} uri - Cesta k obrázku
- * @param {number} [width=640] - Cílová šířka
- * @returns {Promise<string>} - URI zmenšeného obrázku
- */
-export const resizeImageForAnalysis = async (uri, width = 640) => {
-  try {
-    const result = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width } }],
-      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    return result.uri;
-  } catch (e) {
-    console.error('Chyba při resize obrázku:', e);
-    return uri;
-  }
-};
-
-/**
- * Spočítá celkovou velikost uložených obrázků (v MB).
+ * Calculates total storage used by saved images (in MB).
  * @returns {Promise<number>}
  */
 export const getStorageUsedMB = async () => {
@@ -85,13 +68,13 @@ export const getStorageUsedMB = async () => {
     }
     return Math.round(totalBytes / (1024 * 1024));
   } catch (e) {
-    console.error('Chyba při čtení velikosti úložiště:', e);
+    console.error('Failed to read storage size:', e);
     return 0;
   }
 };
 
 /**
- * Smaže všechny uložené obrázky.
+ * Deletes all saved images and recreates the empty directory.
  */
 export const clearAllImages = async () => {
   try {
@@ -99,9 +82,9 @@ export const clearAllImages = async () => {
     if (dir.exists) {
       dir.delete();
     }
-    // Znovu vytvoříme prázdnou složku
+    // Recreate empty directory
     getImagesDirectory();
   } catch (e) {
-    console.error('Chyba při mazání všech obrázků:', e);
+    console.error('Failed to clear all images:', e);
   }
 };

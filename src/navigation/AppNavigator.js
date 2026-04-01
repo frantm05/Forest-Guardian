@@ -1,12 +1,14 @@
-// src/navigation/AppNavigator.js
+/**
+ * @module AppNavigator
+ * @description Stack navigator configuration with theme-aware card styles and screen transitions.
+ */
 import React from 'react';
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 import { NavigationContainer } from '@react-navigation/native';
 
 import { ROUTES } from '../constants/routes';
-import { COLORS } from '../constants/theme';
+import { useSettings } from '../context/SettingsContext';
 
-// Import obrazovek
 import LoadingScreen from '../screens/LoadingScreen';
 import HomeScreen from '../screens/HomeScreen';
 import CameraScreen from '../screens/CameraScreen';
@@ -17,13 +19,15 @@ import SettingsScreen from '../screens/SettingsScreen';
 const Stack = createStackNavigator();
 
 const AppNavigator = () => {
+  const { colors, settings } = useSettings();
+
   return (
     <NavigationContainer>
       <Stack.Navigator
         initialRouteName={ROUTES.LOADING}
         screenOptions={{
           headerShown: false,
-          cardStyle: { backgroundColor: '#F5F6F4' },
+          cardStyle: { backgroundColor: colors.background },
           gestureEnabled: true,
           ...TransitionPresets.SlideFromRightIOS,
         }}

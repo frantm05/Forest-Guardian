@@ -1,10 +1,13 @@
-// src/services/storageService.js
+/**
+ * @module storageServices
+ * @description AsyncStorage-backed persistence for detection history records.
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = '@forest_guardian_history';
 
 /**
- * Načte celou historii detekcí.
+ * Loads the full detection history array.
  * @returns {Promise<Array>}
  */
 export const getHistory = async () => {
@@ -12,14 +15,14 @@ export const getHistory = async () => {
         const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
         return jsonValue != null ? JSON.parse(jsonValue) : [];
     } catch (e) {
-        console.error('Chyba při načítání historie:', e);
+        console.error('Failed to load history:', e);
         return [];
     }
 };
 
 /**
- * Uloží nový výsledek detekce.
- * @param {object} newRecord 
+ * Persists a new detection record (prepended to history).
+ * @param {object} newRecord
  */
 export const saveRecord = async (newRecord) => {
     try {
@@ -30,13 +33,13 @@ export const saveRecord = async (newRecord) => {
         ];
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedHistory));
     } catch (e) {
-        console.error('Chyba při ukládání:', e);
+        console.error('Failed to save record:', e);
     }
 };
 
 /**
- * Smaže jeden záznam z historie dle ID.
- * @param {string} id - ID záznamu ke smazání
+ * Deletes a single history record by ID.
+ * @param {string} id - Record ID to remove
  */
 export const deleteRecord = async (id) => {
     try {
@@ -44,17 +47,17 @@ export const deleteRecord = async (id) => {
         const updatedHistory = currentHistory.filter(item => item.id !== id);
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedHistory));
     } catch (e) {
-        console.error('Chyba při mazání záznamu:', e);
+        console.error('Failed to delete record:', e);
     }
 };
 
 /**
- * Vymaže celou historii.
+ * Clears the entire detection history.
  */
 export const clearHistory = async () => {
     try {
         await AsyncStorage.removeItem(STORAGE_KEY);
     } catch (e) {
-        console.error('Chyba při mazání historie:', e);
+        console.error('Failed to clear history:', e);
     }
 };

@@ -1,19 +1,29 @@
-// src/screens/CameraScreen.js
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert, ScrollView, Image, Dimensions, ActivityIndicator } from 'react-native';
+/**
+ * @file CameraScreen.js
+ * @description Camera screen with live preview, tree species selector, flash/facing
+ *              toggles, gallery picker, and photo preview before segmentation.
+ */
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, Text, TouchableOpacity, TouchableWithoutFeedback,
+  Modal, StatusBar, Alert, ScrollView, Image, ActivityIndicator,
+  Animated, PanResponder,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
-import { SPACING, RADIUS } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
-import { TREE_TYPES, detectPests } from '../services/aiServices';
+import { TREE_TYPES, detectWithTTA } from '../services/aiServices';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
+import { getTreeDisplayLabel } from '../utils/formatters';
+import styles, { SCREEN_WIDTH, CAMERA_HEIGHT } from './styles/CameraScreen.styles';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CAMERA_HEIGHT = SCREEN_WIDTH * (4 / 3); 
+const MIN_CROP_SIZE = 80;
+const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
 const CameraScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
@@ -27,12 +37,112 @@ const CameraScreen = ({ navigation }) => {
   const [showTreeModal, setShowTreeModal] = useState(false);
   const [isTakingPicture, setIsTakingPicture] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  
   const [capturedPhoto, setCapturedPhoto] = useState(null);
 
+  // Tap-to-focus visual indicator
+  const [focusPoint, setFocusPoint] = useState(null);
+  const focusAnim = useRef(new Animated.Value(0)).current;
+
+  // Modal animation
+  const modalAnim = useRef(new Animated.Value(0)).current;
+
+  // Crop state
+  const [cropMode, setCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState({ x: 30, y: 30, w: SCREEN_WIDTH - 60, h: CAMERA_HEIGHT - 60 });
+  const cropRectRef = useRef({ x: 30, y: 30, w: SCREEN_WIDTH - 60, h: CAMERA_HEIGHT - 60 });
+  const cropStartRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
+
+  // Tree selector hint animation
+  const hintAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(hintAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(hintAnim, { toValue: 0, duration: 1200, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  // ---- Crop PanResponders ----
+  const computeCropRect = (corner, start, dx, dy) => {
+    const cW = SCREEN_WIDTH;
+    const cH = CAMERA_HEIGHT;
+    const { x, y, w, h } = start;
+    switch (corner) {
+      case 'tl': {
+        const nx = clamp(x + dx, 0, x + w - MIN_CROP_SIZE);
+        const ny = clamp(y + dy, 0, y + h - MIN_CROP_SIZE);
+        return { x: nx, y: ny, w: x + w - nx, h: y + h - ny };
+      }
+      case 'tr': {
+        const nw = clamp(w + dx, MIN_CROP_SIZE, cW - x);
+        const ny = clamp(y + dy, 0, y + h - MIN_CROP_SIZE);
+        return { x, y: ny, w: nw, h: y + h - ny };
+      }
+      case 'bl': {
+        const nx = clamp(x + dx, 0, x + w - MIN_CROP_SIZE);
+        const nh = clamp(h + dy, MIN_CROP_SIZE, cH - y);
+        return { x: nx, y, w: x + w - nx, h: nh };
+      }
+      case 'br': {
+        const nw = clamp(w + dx, MIN_CROP_SIZE, cW - x);
+        const nh = clamp(h + dy, MIN_CROP_SIZE, cH - y);
+        return { x, y, w: nw, h: nh };
+      }
+      case 'move': {
+        return { x: clamp(x + dx, 0, cW - w), y: clamp(y + dy, 0, cH - h), w, h };
+      }
+      default: return { x, y, w, h };
+    }
+  };
+
+  const makeCropPR = (corner) => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { cropStartRef.current = { ...cropRectRef.current }; },
+    onPanResponderMove: (_, { dx, dy }) => {
+      const r = computeCropRect(corner, cropStartRef.current, dx, dy);
+      cropRectRef.current = r;
+      setCropRect(r);
+    },
+  });
+
+  const cropPRs = useRef({
+    tl: makeCropPR('tl'), tr: makeCropPR('tr'),
+    bl: makeCropPR('bl'), br: makeCropPR('br'),
+    move: makeCropPR('move'),
+  }).current;
+
+  // ---- Camera controls ----
   const toggleFacing = () => {
+    setFlash('off');
     setFacing(f => f === 'back' ? 'front' : 'back');
-    if (facing === 'back' && flash === 'on') setFlash('off');
+  };
+
+  const handleTapToFocus = (evt) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    setFocusPoint({ x: locationX, y: locationY });
+    focusAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(focusAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(800),
+      Animated.timing(focusAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setFocusPoint(null));
+  };
+
+  // ---- Modal animation ----
+  const openTreeModalAnimated = () => {
+    setShowTreeModal(true);
+    modalAnim.setValue(0);
+    Animated.spring(modalAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 10 }).start();
+  };
+
+  const closeTreeModalAnimated = () => {
+    Animated.timing(modalAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setShowTreeModal(false);
+    });
   };
 
   const takePicture = async () => {
@@ -65,9 +175,10 @@ const CameraScreen = ({ navigation }) => {
   };
 
   const confirmAndSegment = async () => {
+    setFlash('off');
     setIsAnalyzing(true);
     try {
-      const result = await detectPests(capturedPhoto.uri, selectedTree.id);
+      const result = await detectWithTTA(capturedPhoto.uri, selectedTree.id);
       if (!result) {
         Alert.alert(t(lang, 'error'), t(lang, 'analysisFailed'));
         setIsAnalyzing(false);
@@ -86,15 +197,94 @@ const CameraScreen = ({ navigation }) => {
     }
   };
 
+  const initCrop = () => {
+    const r = { x: 30, y: 30, w: SCREEN_WIDTH - 60, h: CAMERA_HEIGHT - 60 };
+    cropRectRef.current = r;
+    setCropRect(r);
+    setCropMode(true);
+  };
+
+  const applyCrop = async () => {
+    if (!capturedPhoto) return;
+    const { width: imgW, height: imgH } = capturedPhoto;
+    const cW = SCREEN_WIDTH;
+    const cH = CAMERA_HEIGHT;
+    const imgAspect = imgW / imgH;
+    const containerAspect = cW / cH;
+    let scale, offX = 0, offY = 0;
+    if (imgAspect > containerAspect) {
+      scale = imgH / cH;
+      offX = ((imgW / scale) - cW) / 2;
+    } else {
+      scale = imgW / cW;
+      offY = ((imgH / scale) - cH) / 2;
+    }
+    const { x, y, w, h } = cropRectRef.current;
+    const oX = clamp(Math.round((x + offX) * scale), 0, imgW - 1);
+    const oY = clamp(Math.round((y + offY) * scale), 0, imgH - 1);
+    const cropW = Math.min(Math.round(w * scale), imgW - oX);
+    const cropH = Math.min(Math.round(h * scale), imgH - oY);
+    try {
+      const res = await manipulateAsync(
+        capturedPhoto.uri,
+        [{ crop: { originX: oX, originY: oY, width: cropW, height: cropH } }],
+        { compress: 0.7, format: SaveFormat.JPEG }
+      );
+      setCapturedPhoto({ uri: res.uri, width: res.width, height: res.height });
+      setCropMode(false);
+    } catch (e) {
+      Alert.alert(t(lang, 'error'), t(lang, 'photoError'));
+    }
+  };
 
   if (!permission) return <View style={styles.container} />;
   if (!permission.granted) {
     return (
       <SafeAreaView style={[styles.center, { backgroundColor: colors.background }]}>
-        <Text style={{ color: 'white' }}>Potřebujeme přístup ke kameře</Text>
+        <Text style={{ color: colors.text.primary }}>{t(lang, 'cameraAccessDesc')}</Text>
         <TouchableOpacity onPress={requestPermission} style={styles.permButton}>
-          <Text style={{ color: 'white' }}>Povolit</Text>
+          <Text style={{ color: 'white' }}>{t(lang, 'allowAccess')}</Text>
         </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================
+  // CROP MODE
+  // ==========================================
+  if (capturedPhoto && cropMode) {
+    const { x, y, w, h } = cropRect;
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => setCropMode(false)} style={styles.iconButton}>
+            <Ionicons name="close" size={28} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.topBarTitle}>{t(lang, 'cropPhoto') || 'Crop'}</Text>
+          <TouchableOpacity onPress={applyCrop} style={styles.iconButton}>
+            <Ionicons name="checkmark" size={28} color="#22C55E" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.cameraWrapper}>
+          <Image source={{ uri: capturedPhoto.uri }} style={styles.cameraView} resizeMode="cover" />
+          <View style={[styles.cropMask, { top: 0, left: 0, right: 0, height: y }]} />
+          <View style={[styles.cropMask, { top: y + h, left: 0, right: 0, bottom: 0 }]} />
+          <View style={[styles.cropMask, { top: y, left: 0, width: x, height: h }]} />
+          <View style={[styles.cropMask, { top: y, left: x + w, right: 0, height: h }]} />
+          <View style={[styles.cropBorder, { left: x, top: y, width: w, height: h }]} pointerEvents="none" />
+          <View style={[styles.cropGridH, { left: x, top: y + h / 3, width: w }]} pointerEvents="none" />
+          <View style={[styles.cropGridH, { left: x, top: y + (2 * h) / 3, width: w }]} pointerEvents="none" />
+          <View style={[styles.cropGridV, { left: x + w / 3, top: y, height: h }]} pointerEvents="none" />
+          <View style={[styles.cropGridV, { left: x + (2 * w) / 3, top: y, height: h }]} pointerEvents="none" />
+          <View
+            style={{ position: 'absolute', left: x + 20, top: y + 20, width: Math.max(0, w - 40), height: Math.max(0, h - 40) }}
+            {...cropPRs.move.panHandlers}
+          />
+          {[['tl', x - 15, y - 15], ['tr', x + w - 15, y - 15], ['bl', x - 15, y + h - 15], ['br', x + w - 15, y + h - 15]].map(([k, cx, cy]) => (
+            <View key={k} style={[styles.cropHandle, { left: cx, top: cy }]} {...cropPRs[k].panHandlers} />
+          ))}
+        </View>
       </SafeAreaView>
     );
   }
@@ -112,7 +302,9 @@ const CameraScreen = ({ navigation }) => {
             <Ionicons name="arrow-back" size={28} color="white" />
           </TouchableOpacity>
           <Text style={styles.topBarTitle}>{t(lang, 'photoPreview')}</Text>
-          <View style={{ width: 40 }} />
+          <TouchableOpacity onPress={initCrop} style={styles.iconButton}>
+            <Ionicons name="crop" size={24} color="white" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.cameraWrapper}>
@@ -135,11 +327,11 @@ const CameraScreen = ({ navigation }) => {
             {isAnalyzing ? (
               <>
                 <ActivityIndicator size="small" color="white" />
-                <Text style={styles.confirmBtnText}>Analyzuji...</Text>
+                <Text style={styles.confirmBtnText}>{t(lang, 'analyzing')}</Text>
               </>
             ) : (
               <>
-                <Text style={styles.confirmBtnText}>{t(lang, 'continueToSegmentation')}</Text>
+                <Text style={styles.confirmBtnText}>{t(lang, 'startAnalysis')}</Text>
                 <Ionicons name="sparkles" size={20} color="white" />
               </>
             )}
@@ -161,9 +353,12 @@ const CameraScreen = ({ navigation }) => {
           <Ionicons name="close" size={28} color="white" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.treeSelector} onPress={() => setShowTreeModal(true)}>
-          <Text style={styles.treeSelectorText}>{selectedTree.label}</Text>
-          <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 4 }} />
+        <TouchableOpacity style={styles.treeSelector} onPress={openTreeModalAnimated}>
+          <Ionicons name="leaf" size={14} color="#22C55E" style={{ marginRight: 6 }} />
+          <Text style={styles.treeSelectorText}>{getTreeDisplayLabel(selectedTree, selectedTree.id, lang)}</Text>
+          <Animated.View style={{ marginLeft: 6, transform: [{ translateY: hintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 2] }) }] }}>
+            <Ionicons name="chevron-down" size={16} color="white" />
+          </Animated.View>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => { if (facing !== 'front') setFlash(f => f === 'off' ? 'on' : 'off'); }} style={styles.iconButton}>
@@ -171,9 +366,25 @@ const CameraScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.cameraWrapper}>
-        <CameraView style={styles.cameraView} ref={cameraRef} flash={flash} facing={facing} enableTorch={flash === 'on' && facing === 'back'} />
-      </View>
+      <TouchableWithoutFeedback onPress={handleTapToFocus}>
+        <View style={styles.cameraWrapper}>
+          <CameraView
+            style={styles.cameraView}
+            ref={cameraRef}
+            facing={facing}
+            {...(facing === 'back' ? { flash, enableTorch: flash === 'on' } : {})}
+          />
+          {focusPoint && (
+            <Animated.View
+              style={[styles.focusRing, {
+                left: focusPoint.x - 30, top: focusPoint.y - 30,
+                opacity: focusAnim,
+                transform: [{ scale: focusAnim.interpolate({ inputRange: [0, 1], outputRange: [1.4, 1] }) }],
+              }]}
+            />
+          )}
+        </View>
+      </TouchableWithoutFeedback>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity style={styles.sideButton} onPress={pickFromGallery}>
@@ -189,58 +400,35 @@ const CameraScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <Modal visible={showTreeModal} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={() => setShowTreeModal(false)}>
-          <View style={styles.modalContent}>
+      <Modal visible={showTreeModal} transparent animationType="none" onRequestClose={closeTreeModalAnimated}>
+        <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={closeTreeModalAnimated}>
+          <Animated.View style={[
+            styles.modalContent,
+            {
+              opacity: modalAnim,
+              transform: [
+                { scale: modalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) },
+                { translateY: modalAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) },
+              ],
+            },
+          ]}>
             <Text style={styles.modalTitle}>{t(lang, 'selectTree')}</Text>
 
             <ScrollView>
               {TREE_TYPES.map(tree => (
-                <TouchableOpacity key={tree.id} style={styles.treeOption} onPress={() => { setSelectedTree(tree); setShowTreeModal(false); }}>
+                <TouchableOpacity key={tree.id} style={styles.treeOption} onPress={() => { setSelectedTree(tree); closeTreeModalAnimated(); }}>
                   <Text style={[styles.treeOptionText, selectedTree.id === tree.id && { color: '#22C55E', fontWeight: 'bold' }]}>
-                    {tree.label}
+                    {getTreeDisplayLabel(tree, tree.id, lang)}
                   </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
+          </Animated.View>
         </TouchableOpacity>
       </Modal>
 
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  
-  topBar: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
-  topBarTitle: { color: 'white', fontSize: 18, fontWeight: '600' },
-  iconButton: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  treeSelector: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
-  treeSelectorText: { color: 'white', fontSize: 14, fontWeight: '600' },
-
-  cameraWrapper: { width: SCREEN_WIDTH, height: CAMERA_HEIGHT, backgroundColor: '#111', overflow: 'hidden' },
-  cameraView: { flex: 1 },
-
-  bottomBar: { flex: 1, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center', paddingHorizontal: 20 },
-  sideButton: { width: 50, height: 50, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 25 },
-  
-  shutterOuter: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: 'white', justifyContent: 'center', alignItems: 'center' },
-  shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'white' },
-
-  instructionText: { position: 'absolute', top: 20, width: '100%', textAlign: 'center', color: 'rgba(255,255,255,0.7)', fontSize: 14, lineHeight: 20 },
-  confirmBtn: { flexDirection: 'row', backgroundColor: '#22C55E', paddingVertical: 16, paddingHorizontal: 32, borderRadius: 30, alignItems: 'center', gap: 10, marginTop: 30 },
-  confirmBtnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-
-  permButton: { backgroundColor: '#22C55E', padding: 15, borderRadius: 8, marginTop: 20 },
-
-  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#18181B', borderRadius: 16, padding: 20 },
-  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
-  treeOption: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#27272A' },
-  treeOptionText: { color: 'white', fontSize: 16, textAlign: 'center' }
-});
 
 export default CameraScreen;

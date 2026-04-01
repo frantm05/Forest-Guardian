@@ -1,23 +1,48 @@
-// src/screens/HistoryScreen.js
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Image, Alert, ActivityIndicator, StatusBar } from 'react-native';
+/**
+ * @file HistoryScreen.js
+ * @description Browse, search, and filter past detection records grouped by day
+ *              with severity indicators, confidence badges, and date-based filtering.
+ */
+import React, { useState, useCallback, useMemo } from 'react';
+import {
+  View, Text, SectionList, TouchableOpacity, TextInput,
+  Image, Alert, ActivityIndicator, StatusBar,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { SPACING, RADIUS, SHADOWS } from '../constants/theme';
+import { SPACING } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
 import { getHistory, deleteRecord, clearHistory } from '../services/storageServices';
 import { deleteImage, clearAllImages } from '../services/fileServices';
-import { formatDate, formatConfidence } from '../utils/formatters';
+import { formatDate, groupByDay } from '../utils/formatters';
 import { useSettings } from '../context/SettingsContext';
 import { t } from '../utils/i18n';
+import styles from './styles/HistoryScreen.styles';
+
+// Date filter helpers
+const isToday = (d) => {
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+};
+const isThisWeek = (d) => {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
+  startOfWeek.setHours(0, 0, 0, 0);
+  return d >= startOfWeek;
+};
+const isThisMonth = (d) => {
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+};
 
 const HistoryScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
   const lang = settings.language;
   const dark = settings.darkMode;
 
-  const [filter, setFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +60,7 @@ const HistoryScreen = ({ navigation }) => {
           const history = await getHistory();
           if (isActive) setItems(history);
         } catch (e) {
-          console.error('Chyba při načítání historie:', e);
+          console.error('Failed to load history:', e);
         } finally {
           if (isActive) setLoading(false);
         }
@@ -45,33 +70,48 @@ const HistoryScreen = ({ navigation }) => {
     }, [])
   );
 
-  const filteredItems = items.filter(item => {
-    const matchesFilter = filter === 'all' || 
-      (filter === 'object' && (item.type === 'detection' || item.type === 'object_detection')) ||
-      (filter === 'segmentation' && item.type === 'segmentation');
-    const searchLower = search.toLowerCase();
-    const matchesSearch = !search || 
-      item.label?.toLowerCase().includes(searchLower) || 
-      item.title?.toLowerCase().includes(searchLower) ||
-      item.subtitle?.toLowerCase().includes(searchLower);
-    return matchesFilter && matchesSearch;
-  });
+  // Filter + search → grouped sections
+  const sections = useMemo(() => {
+    const filtered = items.filter(item => {
+      // Date filter
+      if (dateFilter !== 'all') {
+        if (!item.date) return false;
+        const d = new Date(item.date);
+        if (dateFilter === 'today' && !isToday(d)) return false;
+        if (dateFilter === 'week' && !isThisWeek(d)) return false;
+        if (dateFilter === 'month' && !isThisMonth(d)) return false;
+      }
+      // Text search
+      if (search) {
+        const q = search.toLowerCase();
+        const matchLabel = item.label?.toLowerCase().includes(q);
+        const matchTitle = item.title?.toLowerCase().includes(q);
+        const matchDate = item.date ? formatDate(item.date).toLowerCase().includes(q) : false;
+        if (!matchLabel && !matchTitle && !matchDate) return false;
+      }
+      return true;
+    });
+
+    return groupByDay(filtered, lang);
+  }, [items, dateFilter, search, lang]);
+
+  const totalCount = useMemo(() => sections.reduce((sum, s) => sum + s.data.length, 0), [sections]);
 
   const handleDelete = (item) => {
     Alert.alert(t(lang, 'deleteRecord'), t(lang, 'deleteRecordConfirm'), [
       { text: t(lang, 'cancel'), style: 'cancel' },
-      { 
-        text: t(lang, 'delete'), 
-        style: 'destructive', 
+      {
+        text: t(lang, 'delete'),
+        style: 'destructive',
         onPress: async () => {
           try {
             if (item.imageUri) await deleteImage(item.imageUri);
             await deleteRecord(item.id);
             setItems(prev => prev.filter(i => i.id !== item.id));
           } catch (e) {
-            console.error('Chyba při mazání:', e);
+            console.error('Failed to delete record:', e);
           }
-        } 
+        }
       }
     ]);
   };
@@ -80,142 +120,164 @@ const HistoryScreen = ({ navigation }) => {
     if (items.length === 0) return;
     Alert.alert(t(lang, 'deleteAll'), t(lang, 'deleteAllConfirm'), [
       { text: t(lang, 'cancel'), style: 'cancel' },
-      { 
-        text: t(lang, 'deleteAll'), 
-        style: 'destructive', 
+      {
+        text: t(lang, 'deleteAll'),
+        style: 'destructive',
         onPress: async () => {
           try {
             await clearAllImages();
             await clearHistory();
             setItems([]);
           } catch (e) {
-            console.error('Chyba:', e);
+            console.error('Failed to clear history:', e);
           }
-        } 
+        }
       }
     ]);
   };
 
-  const getSeverityColor = (severity) => {
-    const normalized = severity === 'critical' ? 'high' : severity === 'warning' ? 'medium' : severity;
-    if (normalized === 'high') return '#ef4444';
-    if (normalized === 'medium') return '#eab308';
-    return colors.primary;
+  const getSeverityColor = (item) => {
+    if (item.severity === 'critical') return '#ef4444';
+    if (item.severity === 'warning') return '#f59e0b';
+    return '#22c55e';
   };
 
-  const getSeverityBg = (severity) => {
-    const normalized = severity === 'critical' ? 'high' : severity === 'warning' ? 'medium' : severity;
-    if (normalized === 'high') return dark ? 'rgba(239,68,68,0.15)' : '#FEF2F2';
-    if (normalized === 'medium') return dark ? 'rgba(234,179,8,0.15)' : '#FFFBEB';
-    return dark ? 'rgba(34,197,94,0.15)' : '#F0FDF4';
-  };
+  const renderSectionHeader = ({ section }) => (
+    <View style={[styles.sectionHeader, { backgroundColor: bg }]}>
+      <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>
+        {section.title}
+      </Text>
+      <Text style={[styles.sectionCount, { color: colors.text.tertiary }]}>
+        {section.data.length}
+      </Text>
+    </View>
+  );
 
   const renderItem = ({ item }) => {
-    const title = item.label || item.title || t(lang, 'unknownFind');
-    const confidence = item.confidence || 0;
-    const severity = item.severity === 'critical'
-      ? 'high'
-      : item.severity === 'warning'
-        ? 'medium'
-        : (item.severity || 'low');
+    const isInfo = item.severity === 'info';
+    const sevColor = getSeverityColor(item);
+    const confPercent = item.confidence ? Math.round(item.confidence * 100) : null;
+    const detCount = item.detections?.length || 0;
     const date = item.date ? formatDate(item.date) : '';
     const imageSource = item.imageUri ? { uri: item.imageUri } : null;
 
+    // Short title: for info show translated "no pest", for pests show just severity label
+    const rawTitle = item.label || item.title || t(lang, 'unknownFind');
+    const title = rawTitle === 'noPestFound' ? t(lang, 'noPestFound') : rawTitle;
+
     return (
-      <View style={{ marginBottom: 12 }}>
-        <TouchableOpacity 
-          style={[styles.card, { backgroundColor: cardBg }]}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate(ROUTES.ANALYSIS, { 
-            imageUri: item.imageUri, 
-            mode: item.mode || (item.type === 'detection' || item.type === 'object_detection' ? 'object_detection' : 'segmentation'),
-            treeType: item.treeContext || item.treeType || 'unknown',
-          })}
-        >
-          {imageSource ? (
-            <Image source={imageSource} style={[styles.cardImage, { backgroundColor: inputBg }]} />
-          ) : (
-            <View style={[styles.cardImage, styles.cardImagePlaceholder, { backgroundColor: inputBg }]}>
-              <Ionicons name="image-outline" size={24} color={colors.text.tertiary} />
-            </View>
-          )}
-          
-          <View style={styles.cardContent}>
-            <Text style={[styles.cardTitle, { color: colors.text.primary }]} numberOfLines={1}>{title}</Text>
-            <Text style={[styles.cardDate, { color: colors.text.secondary }]}>{date}</Text>
-            
-            <View style={styles.badges}>
-              <View style={[styles.badge, { backgroundColor: getSeverityBg(severity) }]}>
-                <Text style={[styles.badgeText, { color: getSeverityColor(severity) }]}>
-                  {formatConfidence(confidence)} {t(lang, 'match')}
-                </Text>
-              </View>
-              <View style={[styles.badge, { backgroundColor: getSeverityBg(severity) }]}>
-                <Text style={[styles.badgeText, { color: getSeverityColor(severity) }]}>
-                  {severity === 'high' ? t(lang, 'critical') : severity === 'medium' ? t(lang, 'warning') : t(lang, 'ok')}
-                </Text>
-              </View>
-            </View>
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: cardBg }]}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate(ROUTES.ANALYSIS, {
+          imageUri: item.imageUri,
+          treeType: item.treeContext || item.treeType || 'unknown',
+          result: item,
+        })}
+      >
+        {/* Severity stripe */}
+        <View style={[styles.severityStripe, { backgroundColor: sevColor }]} />
+
+        {imageSource ? (
+          <Image source={imageSource} style={[styles.cardImage, { backgroundColor: inputBg }]} />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImagePlaceholder, { backgroundColor: inputBg }]}>
+            <Ionicons name="image-outline" size={22} color={colors.text.tertiary} />
           </View>
-          
-          <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)}>
-            <Ionicons name="trash-outline" size={20} color={colors.text.secondary} />
-          </TouchableOpacity>
+        )}
+
+        <View style={styles.cardContent}>
+          <View style={styles.cardTopRow}>
+            <Text style={[styles.cardTitle, { color: colors.text.primary }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {confPercent !== null && !isInfo && (
+              <View style={[styles.confBadge, { backgroundColor: sevColor + '18' }]}>
+                <Text style={[styles.confBadgeText, { color: sevColor }]}>{confPercent}%</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.cardBottomRow}>
+            <Text style={[styles.cardDate, { color: colors.text.tertiary }]}>{date}</Text>
+            {detCount > 1 && (
+              <View style={styles.detCountWrap}>
+                <Ionicons name="layers-outline" size={12} color={colors.text.tertiary} />
+                <Text style={[styles.detCountText, { color: colors.text.tertiary }]}>{detCount}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="trash-outline" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
     );
   };
 
+  const dateFilters = [
+    { key: 'all', label: t(lang, 'all') },
+    { key: 'today', label: t(lang, 'filterToday') },
+    { key: 'week', label: t(lang, 'filterWeek') },
+    { key: 'month', label: t(lang, 'filterMonth') },
+  ];
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
-      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
+
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: dark ? colors.border : '#F4F4F5' }]}>
+      <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: dark ? colors.border : '#e4e4e7' }]}>
         <View style={styles.headerTop}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={styles.headerLeft}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backButton, { backgroundColor: inputBg }]}>
-              <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
+              <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
             </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.text.primary }]}>{t(lang, 'history')}</Text>
+            <View>
+              <Text style={[styles.headerTitle, { color: colors.text.primary }]}>{t(lang, 'history')}</Text>
+              <Text style={[styles.headerSubtitle, { color: colors.text.tertiary }]}>
+                {items.length} {t(lang, 'recordCount')}
+              </Text>
+            </View>
           </View>
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: inputBg }]} onPress={handleClearAll}>
-            <Ionicons name="trash-outline" size={20} color={colors.text.secondary} />
+            <Ionicons name="trash-outline" size={18} color={colors.text.secondary} />
           </TouchableOpacity>
         </View>
 
         <View style={[styles.searchContainer, { backgroundColor: inputBg }]}>
-          <Ionicons name="search-outline" size={18} color={colors.text.secondary} style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={16} color={colors.text.tertiary} style={styles.searchIcon} />
           <TextInput
             style={[styles.searchInput, { color: colors.text.primary }]}
             placeholder={t(lang, 'searchPlaceholder')}
             value={search}
             onChangeText={setSearch}
-            placeholderTextColor={colors.text.secondary}
+            placeholderTextColor={colors.text.tertiary}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={18} color={colors.text.secondary} />
+              <Ionicons name="close-circle" size={16} color={colors.text.tertiary} />
             </TouchableOpacity>
           )}
         </View>
 
         <View style={styles.filterRow}>
-          {['all', 'object', 'segmentation'].map((f) => (
+          {dateFilters.map((f) => (
             <TouchableOpacity
-              key={f}
-              onPress={() => setFilter(f)}
+              key={f.key}
+              onPress={() => setDateFilter(f.key)}
               style={[
                 styles.filterChip,
-                filter === f 
-                  ? { backgroundColor: dark ? colors.primary : '#1E3D28', borderColor: dark ? colors.primary : '#1E3D28' } 
+                dateFilter === f.key
+                  ? { backgroundColor: dark ? colors.primary : '#1E3D28', borderColor: dark ? colors.primary : '#1E3D28' }
                   : { backgroundColor: inputBg, borderColor: inputBg }
               ]}
             >
               <Text style={[
                 styles.filterText,
-                filter === f ? { color: 'white' } : { color: colors.text.secondary }
+                dateFilter === f.key ? { color: 'white' } : { color: colors.text.secondary }
               ]}>
-                {f === 'object' ? t(lang, 'pests') : f === 'segmentation' ? t(lang, 'damage') : t(lang, 'all')}
+                {f.label}
               </Text>
             </TouchableOpacity>
           ))}
@@ -228,18 +290,21 @@ const HistoryScreen = ({ navigation }) => {
           <Text style={{ color: colors.text.secondary, marginTop: SPACING.m }}>{t(lang, 'loadingHistory')}</Text>
         </View>
       ) : (
-        <FlatList
-          data={filteredItems}
+        <SectionList
+          sections={sections}
+          extraData={dateFilter + search}
           keyExtractor={item => item.id}
           renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Ionicons name="leaf-outline" size={48} color={colors.text.secondary} style={{ marginBottom: SPACING.m }} />
-              <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary, marginBottom: SPACING.s }}>{t(lang, 'noRecords')}</Text>
-              <Text style={{ color: colors.text.secondary, textAlign: 'center' }}>
-                {search ? t(lang, 'noSearchResults') : t(lang, 'startScanning')}
+              <Ionicons name="leaf-outline" size={48} color={colors.text.tertiary} style={{ marginBottom: SPACING.m }} />
+              <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>{t(lang, 'noRecords')}</Text>
+              <Text style={[styles.emptySub, { color: colors.text.secondary }]}>
+                {search || dateFilter !== 'all' ? t(lang, 'noSearchResults') : t(lang, 'startScanning')}
               </Text>
             </View>
           }
@@ -248,32 +313,5 @@ const HistoryScreen = ({ navigation }) => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: 24, paddingBottom: 16, paddingTop: 16, borderBottomWidth: 1 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  backButton: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  iconBtn: { padding: 8, borderRadius: 20 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: RADIUS.m, paddingHorizontal: 12, marginBottom: 16 },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, paddingVertical: 12, fontSize: 14 },
-  filterRow: { flexDirection: 'row', gap: 8 },
-  filterChip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: RADIUS.full, borderWidth: 1 },
-  filterText: { fontSize: 12, fontWeight: '500' },
-  listContent: { padding: 16, paddingBottom: 40, flexGrow: 1 },
-  card: { flexDirection: 'row', padding: 12, borderRadius: RADIUS.l, ...SHADOWS.sm, alignItems: 'center', gap: 12 },
-  cardImage: { width: 64, height: 64, borderRadius: RADIUS.m },
-  cardImagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
-  cardContent: { flex: 1 },
-  cardTitle: { fontSize: 16, fontWeight: '600', marginRight: 8 },
-  cardDate: { fontSize: 11, marginBottom: 6 },
-  badges: { flexDirection: 'row', gap: 6 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-  badgeText: { fontSize: 10, fontWeight: '600' },
-  deleteBtn: { padding: 8 },
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 80, paddingHorizontal: SPACING.xl },
-});
 
 export default HistoryScreen;
