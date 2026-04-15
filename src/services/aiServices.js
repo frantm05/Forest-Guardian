@@ -10,7 +10,7 @@ import * as jpeg from 'jpeg-js';
 import { Buffer } from 'buffer';
 if (typeof global.Buffer === 'undefined') global.Buffer = Buffer;
 
-const log = (...args) => { if (__DEV__) console.warn(...args); };
+const log = (...args) => { console.warn(...args); };
 
 export const TREE_TYPES = [
   { id: 'auto', labelKey: 'treeUnknown', latinKey: 'treeUnknownLatin' },
@@ -31,7 +31,7 @@ const PEST_LABELS = {
 const YOLO_INPUT_SIZE = 640;
 const YOLO_CONF_THRESHOLD = 0.25;
 const YOLO_IOU_THRESHOLD = 0.45;
-const YOLO_NUM_MASK_COEFFS = 32; // YOLOv8-seg mask prototype count
+const YOLO_NUM_MASK_COEFFS = 32; 
 const YOLO_MASK_THRESHOLD = 0.5;
 
 // Pest-to-host tree mapping for result filtering
@@ -96,9 +96,6 @@ export const initModel = async () => {
 
 export const areModelsLoaded = () => !!yoloModel;
 
-// ==========================================
-// YOLOv8-SEG INFERENCE PIPELINE
-// ==========================================
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
@@ -156,7 +153,7 @@ const parseYoloSegOutput = (rawDetections, detShape, protoShape) => {
 /**
  * YOLO26 end2end: [1, N, features]
  * Each row: [x1, y1, x2, y2, confidence, class_id, mask_coeff_0…mask_coeff_31]
- * Bboxes may be in pixel coords (0–640) or already normalized (0–1).
+ * Bboxes may be in pixel coords (0–800) or already normalized (0–1).
  */
 const parseYoloEnd2End = (raw, detShape, nm) => {
   const N = detShape[1];        // e.g. 300
@@ -470,13 +467,26 @@ const processAiResults = (predictions, treeType) => {
   const treeName = TREE_ID_TO_NAME[treeType] || null;
 
   // Auto-detection: trust the model fully
-  if (!treeName) return predictions;
+  if (!treeName) {
+    log(`[Filter] Tree=auto → no filtering applied`);
+    return predictions;
+  }
+
+  log(`[Filter] Tree=${treeType} (${treeName}), ${predictions.length} detections to filter`);
 
   const filtered = predictions.map(prediction => {
     const allowedTrees = PEST_HOST_TREES[prediction.className];
-    // Penalize pest that doesn't live on the selected tree
+    if (allowedTrees && allowedTrees.includes(treeName)) {
+      // Boost pest that is known to attack the selected tree
+      const boosted = Math.min(prediction.confidence * 1.25, 1.0);
+      log(`[Filter]  ✓ ${prediction.className}: ${(prediction.confidence*100).toFixed(1)}% → ${(boosted*100).toFixed(1)}% (BOOST ×1.25, hosts: ${allowedTrees.join(', ')})`);
+      return { ...prediction, confidence: boosted };
+    }
     if (allowedTrees && !allowedTrees.includes(treeName)) {
-      return { ...prediction, confidence: prediction.confidence * 0.1 };
+      // Strongly penalize pest that doesn't live on the selected tree
+      const penalized = prediction.confidence * 0.05;
+      log(`[Filter]  ✗ ${prediction.className}: ${(prediction.confidence*100).toFixed(1)}% → ${(penalized*100).toFixed(1)}% (PENALTY ×0.05, hosts: ${allowedTrees.join(', ')})`);
+      return { ...prediction, confidence: penalized };
     }
     return prediction;
   });
@@ -523,7 +533,7 @@ const rotateImage = async (imageUri, angle) => {
 
 /**
  * Reverse a normalized bbox [x1,y1,x2,y2] from CCW-rotated space back to original.
- * Assumes square input (YOLO 640×640).
+ * Assumes square input (YOLO 800×800).
  */
 const rotateBboxBack = (bbox, angle) => {
   if (angle === 0) return bbox;

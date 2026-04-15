@@ -73,6 +73,17 @@ export default StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  maskBtn: {
+    position: 'absolute',
+    top: SPACING.m,
+    right: SPACING.m,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   /* ── Content ───────────────────────────────────── */
   content: {
@@ -245,6 +256,32 @@ export default StyleSheet.create({
     width: SCREEN_WIDTH - 40,
     height: SCREEN_WIDTH - 40,
     borderRadius: RADIUS.l,
+  },
+  overlayImageWrap: {
+    width: SCREEN_WIDTH - 40,
+    height: SCREEN_WIDTH - 40,
+    borderRadius: RADIUS.l,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  overlayImageFill: {
+    width: '100%',
+    height: '100%',
+  },
+  overlayMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    opacity: 0.5,
+  },
+  overlayLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 12,
+    textAlign: 'center',
   },
 
   /* ── Bottom action bar ─────────────────────────── */

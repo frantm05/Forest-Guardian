@@ -137,6 +137,10 @@ const translations = {
     recordCount: 'záznamů',
     today: 'Dnes',
     yesterday: 'Včera',
+    treePestSpruce: 'Napadá: Lýkožrout lesklý (P. chalcographus)',
+    treePestLarch: 'Napadá: Lýkožrout modřínový (I. cembrae), Lýkožrout lesklý (P. chalcographus)',
+    treePestPine: 'Napadá: Lýkožrout lesklý (P. chalcographus)',
+    segmentationMask: 'Segmentační maska',
   },
   en: {
     welcomeBack: 'Welcome back',
@@ -274,6 +278,10 @@ const translations = {
     recordCount: 'records',
     today: 'Today',
     yesterday: 'Yesterday',
+    treePestSpruce: 'At risk: P. chalcographus (Bark beetle)',
+    treePestLarch: 'At risk: I. cembrae, P. chalcographus',
+    treePestPine: 'At risk: P. chalcographus (Bark beetle)',
+    segmentationMask: 'Segmentation mask',
   },
   es: {
     welcomeBack: 'Bienvenido de nuevo',
@@ -411,6 +419,10 @@ const translations = {
     recordCount: 'registros',
     today: 'Hoy',
     yesterday: 'Ayer',
+    treePestSpruce: 'En riesgo: P. chalcographus',
+    treePestLarch: 'En riesgo: I. cembrae, P. chalcographus',
+    treePestPine: 'En riesgo: P. chalcographus',
+    segmentationMask: 'Máscara de segmentación',
   },
 };
 

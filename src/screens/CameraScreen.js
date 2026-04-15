@@ -25,6 +25,26 @@ import styles, { SCREEN_WIDTH, CAMERA_HEIGHT } from './styles/CameraScreen.style
 const MIN_CROP_SIZE = 80;
 const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
+const TREE_PEST_KEY = {
+  spruce: 'treePestSpruce',
+  larch: 'treePestLarch',
+  pine: 'treePestPine',
+};
+
+const cropToSquare = async (photo) => {
+  const { width, height, uri } = photo;
+  if (Math.abs(width - height) < 2) return photo;
+  const size = Math.min(width, height);
+  const originX = Math.round((width - size) / 2);
+  const originY = Math.round((height - size) / 2);
+  const result = await manipulateAsync(
+    uri,
+    [{ crop: { originX, originY, width: size, height: size } }],
+    { compress: 0.7, format: SaveFormat.JPEG }
+  );
+  return { uri: result.uri, width: result.width, height: result.height };
+};
+
 const CameraScreen = ({ navigation }) => {
   const { settings, colors } = useSettings();
   const lang = settings.language;
@@ -151,7 +171,8 @@ const CameraScreen = ({ navigation }) => {
       setIsTakingPicture(true);
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
       if (photo?.uri) {
-        setCapturedPhoto(photo);
+        const squared = await cropToSquare(photo);
+        setCapturedPhoto(squared);
       }
     } catch (e) {
       Alert.alert(t(lang, 'error'), t(lang, 'photoError'));
@@ -167,7 +188,8 @@ const CameraScreen = ({ navigation }) => {
         quality: 0.7,
       });
       if (!result.canceled && result.assets?.[0]?.uri) {
-        setCapturedPhoto(result.assets[0]);
+        const squared = await cropToSquare(result.assets[0]);
+        setCapturedPhoto(squared);
       }
     } catch (e) {
       Alert.alert(t(lang, 'error'), t(lang, 'galleryError'));
@@ -353,8 +375,8 @@ const CameraScreen = ({ navigation }) => {
           <Ionicons name="close" size={28} color="white" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.treeSelector} onPress={openTreeModalAnimated}>
-          <Ionicons name="leaf" size={14} color="#22C55E" style={{ marginRight: 6 }} />
+        <TouchableOpacity style={[styles.treeSelector, selectedTree.id !== 'auto' && styles.treeSelectorActive]} onPress={openTreeModalAnimated}>
+          <Ionicons name={selectedTree.id !== 'auto' ? "leaf" : "leaf-outline"} size={14} color="#22C55E" style={{ marginRight: 6 }} />
           <Text style={styles.treeSelectorText}>{getTreeDisplayLabel(selectedTree, selectedTree.id, lang)}</Text>
           <Animated.View style={{ marginLeft: 6, transform: [{ translateY: hintAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 2] }) }] }}>
             <Ionicons name="chevron-down" size={16} color="white" />
@@ -415,13 +437,30 @@ const CameraScreen = ({ navigation }) => {
             <Text style={styles.modalTitle}>{t(lang, 'selectTree')}</Text>
 
             <ScrollView>
-              {TREE_TYPES.map(tree => (
-                <TouchableOpacity key={tree.id} style={styles.treeOption} onPress={() => { setSelectedTree(tree); closeTreeModalAnimated(); }}>
-                  <Text style={[styles.treeOptionText, selectedTree.id === tree.id && { color: '#22C55E', fontWeight: 'bold' }]}>
-                    {getTreeDisplayLabel(tree, tree.id, lang)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {TREE_TYPES.map(tree => {
+                const isSelected = selectedTree.id === tree.id;
+                const pestKey = TREE_PEST_KEY[tree.id];
+                return (
+                  <TouchableOpacity
+                    key={tree.id}
+                    style={[styles.treeOption, isSelected && styles.treeOptionSelected]}
+                    onPress={() => { setSelectedTree(tree); closeTreeModalAnimated(); }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                      {isSelected && <Ionicons name="checkmark-circle" size={18} color="#22C55E" style={{ marginRight: 8 }} />}
+                      <Text style={[styles.treeOptionText, isSelected && { color: '#22C55E', fontWeight: 'bold' }]}>
+                        {getTreeDisplayLabel(tree, tree.id, lang)}
+                      </Text>
+                    </View>
+                    {pestKey && (
+                      <View style={styles.treePestInfo}>
+                        <Ionicons name="bug-outline" size={12} color="#F59E0B" />
+                        <Text style={styles.treePestText}>{t(lang, pestKey)}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </Animated.View>
         </TouchableOpacity>

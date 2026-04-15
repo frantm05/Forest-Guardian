@@ -34,9 +34,11 @@ const AnalysisScreen = ({ route, navigation }) => {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [photoDetailVisible, setPhotoDetailVisible] = useState(false);
+  const [maskDetailVisible, setMaskDetailVisible] = useState(false);
 
   // Photo detail animation
   const detailAnim = useRef(new Animated.Value(0)).current;
+  const maskAnim = useRef(new Animated.Value(0)).current;
 
   const treeObj = TREE_TYPES.find(tt => tt.id === treeType);
   const treeLabel = getTreeDisplayLabel(treeObj, treeType, lang);
@@ -78,6 +80,18 @@ const AnalysisScreen = ({ route, navigation }) => {
   const closePhotoDetail = () => {
     Animated.timing(detailAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setPhotoDetailVisible(false);
+    });
+  };
+
+  const openMaskDetail = () => {
+    setMaskDetailVisible(true);
+    maskAnim.setValue(0);
+    Animated.spring(maskAnim, { toValue: 1, useNativeDriver: true, tension: 60, friction: 9 }).start();
+  };
+
+  const closeMaskDetail = () => {
+    Animated.timing(maskAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setMaskDetailVisible(false);
     });
   };
 
@@ -213,6 +227,11 @@ const AnalysisScreen = ({ route, navigation }) => {
             <TouchableOpacity style={[styles.backBtn, { top: insets.top + 8 }]} onPress={() => navigation.goBack()}>
               <Ionicons name="arrow-back" size={24} color="white" />
             </TouchableOpacity>
+            {result?.detections?.length > 0 && result.detections.some(d => d.maskUri) && (
+              <TouchableOpacity style={[styles.maskBtn, { top: insets.top + 8 }]} onPress={openMaskDetail}>
+                <Ionicons name="layers-outline" size={22} color="white" />
+              </TouchableOpacity>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -323,6 +342,31 @@ const AnalysisScreen = ({ route, navigation }) => {
             }]}
             resizeMode="contain"
           />
+        </Animated.View>
+      </Modal>
+
+      {/* MASK OVERLAY */}
+      <Modal visible={maskDetailVisible} transparent animationType="none" onRequestClose={closeMaskDetail}>
+        <Animated.View style={[styles.overlayBg, { opacity: maskAnim }]}>
+          <TouchableOpacity style={[styles.overlayCloseBtn, { top: insets.top + 10 }]} onPress={closeMaskDetail}>
+            <Ionicons name="close" size={24} color="white" />
+          </TouchableOpacity>
+          <Animated.View style={[styles.overlayImageWrap, {
+            transform: [
+              { scale: maskAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) },
+            ],
+          }]}>
+            <Image source={{ uri: imageUri }} style={styles.overlayImageFill} resizeMode="contain" />
+            {result?.detections?.map((det, i) => det.maskUri ? (
+              <Image
+                key={i}
+                source={{ uri: det.maskUri }}
+                style={styles.overlayMask}
+                resizeMode="contain"
+              />
+            ) : null)}
+          </Animated.View>
+          <Text style={styles.overlayLabel}>{t(lang, 'segmentationMask')}</Text>
         </Animated.View>
       </Modal>
     </SafeAreaView>

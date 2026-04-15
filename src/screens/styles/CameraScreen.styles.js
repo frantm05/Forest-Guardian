@@ -6,7 +6,7 @@ import { StyleSheet, Dimensions } from 'react-native';
 import { SPACING, RADIUS } from '../../constants/theme';
 
 export const SCREEN_WIDTH = Dimensions.get('window').width;
-export const CAMERA_HEIGHT = SCREEN_WIDTH * (4 / 3);
+export const CAMERA_HEIGHT = SCREEN_WIDTH;
 
 export default StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
@@ -33,6 +33,11 @@ export default StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
+  },
+  treeSelectorActive: {
+    backgroundColor: 'rgba(34,197,94,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.5)',
   },
   treeSelectorText: { color: 'white', fontSize: 14, fontWeight: '600' },
 
@@ -126,11 +131,28 @@ export default StyleSheet.create({
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#27272A',
+    alignItems: 'center',
+  },
+  treeOptionSelected: {
+    backgroundColor: 'rgba(34,197,94,0.1)',
+    borderRadius: 12,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
   },
   treeOptionText: {
     color: 'white',
     fontSize: 16,
     textAlign: 'center',
+  },
+  treePestInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  treePestText: {
+    color: '#F59E0B',
+    fontSize: 11,
   },
   focusRing: {
     position: 'absolute',
