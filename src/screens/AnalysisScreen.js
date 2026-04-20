@@ -1,8 +1,3 @@
-/**
- * @file AnalysisScreen.js
- * @description Displays AI analysis results — clean, modern layout with
- *              distinct flows for "no pest" (green) and "pest found" (red).
- */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, Image, ScrollView, TouchableOpacity,
@@ -13,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SPACING } from '../constants/theme';
 import { ROUTES } from '../constants/routes';
-import { analyzeImage, TREE_TYPES } from '../services/aiServices';
+import { detectWithTTA, TREE_TYPES } from '../services/aiServices';
 import { saveRecord } from '../services/storageServices';
 import { saveImageLocally } from '../services/fileServices';
 import { useSettings } from '../context/SettingsContext';
@@ -36,7 +31,6 @@ const AnalysisScreen = ({ route, navigation }) => {
   const [photoDetailVisible, setPhotoDetailVisible] = useState(false);
   const [maskDetailVisible, setMaskDetailVisible] = useState(false);
 
-  // Photo detail animation
   const detailAnim = useRef(new Animated.Value(0)).current;
   const maskAnim = useRef(new Animated.Value(0)).current;
 
@@ -53,7 +47,7 @@ const AnalysisScreen = ({ route, navigation }) => {
       return;
     }
     let cancelled = false;
-    analyzeImage(imageUri, treeType)
+    detectWithTTA(imageUri, treeType)
       .then(data => {
         if (cancelled) return;
         if (!data || typeof data.confidence !== 'number') {
@@ -114,9 +108,6 @@ const AnalysisScreen = ({ route, navigation }) => {
   const bg = colors.background;
   const cardBg = dark ? colors.surface : '#f9fafb';
 
-  // ==========================================
-  // LOADING
-  // ==========================================
   if (phase === 'loading') {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor: bg }]}>
@@ -142,9 +133,6 @@ const AnalysisScreen = ({ route, navigation }) => {
     );
   }
 
-  // ==========================================
-  // ERROR
-  // ==========================================
   if (error) {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor: bg }]}>
@@ -165,9 +153,6 @@ const AnalysisScreen = ({ route, navigation }) => {
 
   if (!result) return null;
 
-  // ==========================================
-  // NO PEST FOUND — clean green confirmation
-  // ==========================================
   if (isInfo) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
@@ -203,9 +188,6 @@ const AnalysisScreen = ({ route, navigation }) => {
     );
   }
 
-  // ==========================================
-  // PEST FOUND — red alert with details
-  // ==========================================
   const confPercent = Math.round((result.confidence || 0) * 100);
   const severityColor = isCritical ? '#ef4444' : '#f59e0b';
   const severityBg = isCritical ? '#fef2f2' : '#fffbeb';

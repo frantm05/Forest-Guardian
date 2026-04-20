@@ -1,8 +1,3 @@
-/**
- * @file CameraScreen.js
- * @description Camera screen with live preview, tree species selector, flash/facing
- *              toggles, gallery picker, and photo preview before segmentation.
- */
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, TouchableWithoutFeedback,
@@ -24,12 +19,6 @@ import styles, { SCREEN_WIDTH, CAMERA_HEIGHT } from './styles/CameraScreen.style
 
 const MIN_CROP_SIZE = 80;
 const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
-
-const TREE_PEST_KEY = {
-  spruce: 'treePestSpruce',
-  larch: 'treePestLarch',
-  pine: 'treePestPine',
-};
 
 const cropToSquare = async (photo) => {
   const { width, height, uri } = photo;
@@ -271,9 +260,6 @@ const CameraScreen = ({ navigation }) => {
     );
   }
 
-  // ==========================================
-  // CROP MODE
-  // ==========================================
   if (capturedPhoto && cropMode) {
     const { x, y, w, h } = cropRect;
     return (
@@ -311,9 +297,6 @@ const CameraScreen = ({ navigation }) => {
     );
   }
 
-  // ==========================================
-  // PHOTO PREVIEW — confirm before segmentation
-  // ==========================================
   if (capturedPhoto) {
     return (
       <SafeAreaView style={styles.container}>
@@ -363,9 +346,6 @@ const CameraScreen = ({ navigation }) => {
     );
   }
 
-  // ==========================================
-  // LIVE CAMERA
-  // ==========================================
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -439,7 +419,6 @@ const CameraScreen = ({ navigation }) => {
             <ScrollView>
               {TREE_TYPES.map(tree => {
                 const isSelected = selectedTree.id === tree.id;
-                const pestKey = TREE_PEST_KEY[tree.id];
                 return (
                   <TouchableOpacity
                     key={tree.id}
@@ -452,12 +431,6 @@ const CameraScreen = ({ navigation }) => {
                         {getTreeDisplayLabel(tree, tree.id, lang)}
                       </Text>
                     </View>
-                    {pestKey && (
-                      <View style={styles.treePestInfo}>
-                        <Ionicons name="bug-outline" size={12} color="#F59E0B" />
-                        <Text style={styles.treePestText}>{t(lang, pestKey)}</Text>
-                      </View>
-                    )}
                   </TouchableOpacity>
                 );
               })}

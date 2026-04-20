@@ -8,9 +8,6 @@ import { SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 export default StyleSheet.create({
   container: { flex: 1 },
 
-  // ==========================================
-  // HEADER
-  // ==========================================
   header: {
     paddingHorizontal: 20,
     paddingBottom: 14,
@@ -39,9 +36,6 @@ export default StyleSheet.create({
   },
   iconBtn: { padding: 8, borderRadius: 20 },
 
-  // ==========================================
-  // SEARCH
-  // ==========================================
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -53,9 +47,6 @@ export default StyleSheet.create({
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, paddingVertical: 0 },
 
-  // ==========================================
-  // FILTER CHIPS
-  // ==========================================
   filterRow: { flexDirection: 'row', gap: 8 },
   filterChip: {
     paddingHorizontal: 14,
@@ -65,9 +56,6 @@ export default StyleSheet.create({
   },
   filterText: { fontSize: 12, fontWeight: '500' },
 
-  // ==========================================
-  // SECTION LIST
-  // ==========================================
   listContent: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 40, flexGrow: 1 },
 
   sectionHeader: {
@@ -80,9 +68,6 @@ export default StyleSheet.create({
   sectionTitle: { fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   sectionCount: { fontSize: 12, fontWeight: '500' },
 
-  // ==========================================
-  // CARD
-  // ==========================================
   card: {
     flexDirection: 'row',
     borderRadius: RADIUS.l,
@@ -136,9 +121,6 @@ export default StyleSheet.create({
 
   deleteBtn: { padding: 12 },
 
-  // ==========================================
-  // EMPTY STATE
-  // ==========================================
   emptyState: {
     flex: 1,
     alignItems: 'center',

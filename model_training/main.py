@@ -1,21 +1,8 @@
-# ==============================================================
-# OPTIMÁLNÍ YOLO26s-seg trénink pro malý dataset (~130 img)
-# Lightning.ai + NVIDIA RTX PRO 6000 (102 GB VRAM)
-# ==============================================================
-
 import subprocess
 subprocess.run(["pip", "install", "roboflow", "ultralytics", "--upgrade"], check=True)
 
 import torch
 import os
-
-# --- GPU info ---
-if torch.cuda.is_available():
-    gpu = torch.cuda.get_device_properties(0)
-    print(f"GPU: {gpu.name}")
-    vram_gb = gpu.total_memory / (1024**3)
-    print(f"VRAM: {vram_gb:.1f} GB")
-
 
 from roboflow import Roboflow
 rf = Roboflow(api_key="6G82blb1sshjVBAgYvrh")
@@ -26,66 +13,53 @@ dataset = version.download("yolo26")
 
 from ultralytics import YOLO
 
-# ---------------------------------------------------------------
-# STRATEGIE: Jeden kvalitní fine-tuning z nejlepšího checkpointu
-# Nepoužívej triple fine-tuning — model se přetrénuje
-# ---------------------------------------------------------------
 model = YOLO("runs/segment/train_optimized/weights/best.pt")
 
 results = model.train(
     data=f"{dataset.location}/data.yaml",
 
-    # === TRÉNINKOVÉ PARAMETRY ===
     epochs=500,
-    patience=80,             # Dost trpělivosti pro malý dataset
-    imgsz=800,               # 800px pro lepší detail požerků
-    batch=16,                # 16 je optimální pro stabilitu gradientů
+    patience=80,             
+    imgsz=800,               
+    batch=16,                
 
-    # === LEARNING RATE ===
     freeze=0,
-    lr0=5e-05,               # ← SWEET SPOT z tvých experimentů
+    lr0=5e-05,               
     lrf=0.01,
-    warmup_epochs=5,         # 5 epoch warmup — ne 3, ne 10
+    warmup_epochs=5,         
     warmup_bias_lr=0.05,
     warmup_momentum=0.8,
     cos_lr=True,
     optimizer="AdamW",
     weight_decay=0.0005,
 
-    # === LOSS WEIGHTS ===
-    cls=1.5,                 # Vyšší váha pro klasifikaci (2 třídy)
-    box=7.5,                 # Default
-    dfl=1.5,                 # Default
+    cls=1.5,                 
+    box=7.5,                 
+    dfl=1.5,                 
 
-    # === REGULARIZACE ===
-    dropout=0.05,            # Lehký dropout — víc způsobí underfitting
+    dropout=0.05,            
 
-    # === AUGMENTACE — KONZERVATIVNÍ PRO MALÝ DATASET ===
-    # Geometrické (mírné)
-    degrees=8.0,             # Rotace max 8° — požerky na dřevu mají orientaci
+    degrees=8.0,             
     translate=0.1,
-    scale=0.3,               # Zoom ±30%
-    shear=2.0,               # Minimální shear
-    perspective=0.0,         # BEZ perspektivy — zkresluje masky
-    fliplr=0.5,              # Horizontální flip OK
-    flipud=0.0,              # Vertikální flip NE — požerky mají orientaci
+    scale=0.3,               
+    shear=2.0,               
+    perspective=0.0,         
+    fliplr=0.5,              
+    flipud=0.0,              
 
-    # Fotometrické (střední)
-    hsv_h=0.015,             # Hue ±1.5% — jemná změna barvy
-    hsv_s=0.4,               # Saturace ±40%
-    hsv_v=0.3,               # Jas ±30%
+    hsv_h=0.015,             
+    hsv_s=0.4,              
+    hsv_v=0.3,               
 
-    # Pokročilé
-    mosaic=1.0,              # Mosaic ON — synteticky zvětšuje dataset 4×
-    close_mosaic=15,         # Vypnout mosaic posledních 15 epoch
-    mixup=0.0,               # ❌ BEZ MIXUP — na malém datasetu škodí!
-    copy_paste=0.15,         # Mírný copy-paste — pomáhá segmentaci
+    mosaic=1.0,              
+    close_mosaic=15,        
+    mixup=0.0,              
+    copy_paste=0.15,         
     copy_paste_mode="flip",
-    erasing=0.1,             # Mírný random erasing
-    auto_augment="",         # BEZ auto_augment — interferuje s manuálním nastavením
+    erasing=0.1,             
+    auto_augment="",         
 
-    # === OSTATNÍ ===
-    cache="disk",            # Disk cache pro determinismus
+    cache="disk",            
     deterministic=True,
     seed=42,
     plots=True,
@@ -94,13 +68,11 @@ results = model.train(
     workers=4,
 )
 
-# --- Výsledky ---
 from pathlib import Path
 
 train_dir = Path(str(results.save_dir))
 print(f"\n📁 Výsledky: {train_dir}")
 
-# --- Validace ---
 best_weights = train_dir / "weights" / "best.pt"
 if best_weights.exists():
     best_model = YOLO(str(best_weights))
@@ -119,12 +91,3 @@ if best_weights.exists():
         print(f"     Box  mAP50-95: {val_results.box.map:.4f}")
         print(f"     Mask mAP50:    {val_results.seg.ap50[i]:.4f}")
         print(f"     Mask mAP50-95: {val_results.seg.map:.4f}")
-
-    # --- Export ---
-    try:
-        export_path = best_model.export(format="tflite", imgsz=640)
-        print(f"\n✅ TFLite: {export_path}")
-    except Exception as e:
-        print(f"\n⚠️ TFLite selhal: {e}")
-        export_path = best_model.export(format="onnx", imgsz=640, simplify=True)
-        print(f"✅ ONNX: {export_path}")

@@ -1,8 +1,3 @@
-/**
- * @module aiServices
- * @description On-device AI inference pipeline: YOLOv8-seg pest detection, instance segmentation,
- *              optional SAM mask refinement, and tree-species-based result filtering.
- */
 import { InferenceSession, Tensor } from 'onnxruntime-react-native';
 import { Asset } from 'expo-asset';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -19,10 +14,8 @@ export const TREE_TYPES = [
   { id: 'pine', labelKey: 'treePine', latinKey: 'treePineLatin' },
 ];
 
-// YOLOv8-seg class names — must match data.yaml order from the RoboFlow export
 const PEST_CLASSES = ['Ips cembrae', 'Pityogenes chalcographus'];
 
-// Display labels with common + Latin names
 const PEST_LABELS = {
   'Ips cembrae': 'Lýkožrout modřínový (Ips cembrae)',
   'Pityogenes chalcographus': 'Lýkožrout lesklý (Pityogenes chalcographus)',
@@ -31,13 +24,12 @@ const PEST_LABELS = {
 const YOLO_INPUT_SIZE = 640;
 const YOLO_CONF_THRESHOLD = 0.25;
 const YOLO_IOU_THRESHOLD = 0.45;
-const YOLO_NUM_MASK_COEFFS = 32; 
+const YOLO_NUM_MASK_COEFFS = 32;
 const YOLO_MASK_THRESHOLD = 0.5;
 
-// Pest-to-host tree mapping for result filtering
 const PEST_HOST_TREES = {
   'Ips cembrae': ['Modřín'],
-  'Pityogenes chalcographus': ['Smrk', 'Borovice', 'Modřín'],
+  'Pityogenes chalcographus': ['Smrk', 'Borovice'],
 };
 
 const TREE_ID_TO_NAME = {
@@ -47,14 +39,8 @@ const TREE_ID_TO_NAME = {
   'auto': null,
 };
 
-// ==========================================
-// MODEL STATE
-// ==========================================
 let yoloModel = null;
 
-// ==========================================
-// MODEL LOADING
-// ==========================================
 const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 50));
 
 const loadOnnxSession = async () => {
@@ -84,14 +70,7 @@ export const initModelsWithProgress = async (onProgress) => {
     onProgress?.({ step: 1, total, modelName: 'YOLO26 (cached)', status: 'done' });
   }
 
-  log('[Models] All loaded.');
   return true;
-};
-
-export const initModel = async () => {
-  if (!yoloModel) {
-    yoloModel = await loadOnnxSession();
-  }
 };
 
 export const areModelsLoaded = () => !!yoloModel;
@@ -127,22 +106,9 @@ const nms = (detections, iouThreshold) => {
   return kept;
 };
 
-/**
- * Parse YOLO segmentation TFLite output.
- * Supports two formats:
- *   - Classic YOLOv8:    [1, 4+nc+nm, N] column-major, needs NMS
- *   - YOLO26 end2end:    [1, N, 4+1+1+nm] row-major, already post-processed
- * nm = YOLO_NUM_MASK_COEFFS (32).
- */
 const parseYoloSegOutput = (rawDetections, detShape, protoShape) => {
   const nm = protoShape ? protoShape[protoShape.length - 1] : YOLO_NUM_MASK_COEFFS;
-
-  // Detect end2end format: [1, N, features] where N > features
-  // Classic YOLOv8: [1, features, N] where features < N (e.g. [1,38,8400])
-  // YOLO26 e2e:     [1, N, features] where N > features  (e.g. [1,300,38])
   const isEnd2End = detShape[1] > detShape[2];
-
-  log(`[YOLO-parse] shape=${JSON.stringify(detShape)}, nm=${nm}, end2end=${isEnd2End}`);
 
   if (isEnd2End) {
     return parseYoloEnd2End(rawDetections, detShape, nm);
@@ -150,25 +116,18 @@ const parseYoloSegOutput = (rawDetections, detShape, protoShape) => {
   return parseYoloClassic(rawDetections, detShape, nm);
 };
 
-/**
- * YOLO26 end2end: [1, N, features]
- * Each row: [x1, y1, x2, y2, confidence, class_id, mask_coeff_0…mask_coeff_31]
- * Bboxes may be in pixel coords (0–800) or already normalized (0–1).
- */
 const parseYoloEnd2End = (raw, detShape, nm) => {
-  const N = detShape[1];        // e.g. 300
-  const features = detShape[2]; // e.g. 38 = 4+1+1+32
+  const N = detShape[1];
+  const features = detShape[2];
   const detections = [];
 
-  // First pass: check if coords are in pixel space or already normalized
   let maxCoord = 0;
   for (let i = 0; i < Math.min(N, 50); i++) {
     const off = i * features;
     if (raw[off + 4] < YOLO_CONF_THRESHOLD) continue;
     maxCoord = Math.max(maxCoord, raw[off], raw[off + 1], raw[off + 2], raw[off + 3]);
   }
-  const needsNormalize = maxCoord > 2.0; // pixel coords if max > 2
-  log(`[YOLO-e2e] maxCoord=${maxCoord.toFixed(2)}, needsNormalize=${needsNormalize}`);
+  const needsNormalize = maxCoord > 2.0;
 
   for (let i = 0; i < N; i++) {
     const off = i * features;
@@ -203,21 +162,16 @@ const parseYoloEnd2End = (raw, detShape, nm) => {
     });
   }
 
-  // End2end model already did NMS internally — just sort by confidence
   detections.sort((a, b) => b.confidence - a.confidence);
   return detections;
 };
 
-/**
- * Classic YOLOv8-seg: [1, 4+nc+nm, N] column-major, needs manual NMS.
- */
 const parseYoloClassic = (raw, detShape, nm) => {
   const rowSize = detShape[1];
   const N = detShape[2];
   const nc = rowSize - 4 - nm;
 
   if (nc <= 0) {
-    log(`[YOLO] Cannot parse classic: nc=${nc} (shape ${JSON.stringify(detShape)})`);
     return [];
   }
 
@@ -259,11 +213,6 @@ const parseYoloClassic = (raw, detShape, nm) => {
   return nms(detections, YOLO_IOU_THRESHOLD);
 };
 
-/**
- * Generate instance segmentation mask for a detection from mask prototypes.
- * Supports both NHWC [1, H, W, nm] and NCHW [1, nm, H, W] proto layouts.
- * Returns a binary mask at (protoH × protoW) resolution.
- */
 const generateInstanceMask = (maskCoeffs, protoData, protoH, protoW, nm = YOLO_NUM_MASK_COEFFS, isNCHW = false) => {
   const mask = new Float32Array(protoH * protoW);
 
@@ -272,21 +221,17 @@ const generateInstanceMask = (maskCoeffs, protoData, protoH, protoW, nm = YOLO_N
       let sum = 0;
       for (let m = 0; m < nm; m++) {
         const idx = isNCHW
-          ? m * protoH * protoW + y * protoW + x    // NCHW: [1, nm, H, W]
-          : y * protoW * nm + x * nm + m;            // NHWC: [1, H, W, nm]
+          ? m * protoH * protoW + y * protoW + x
+          : y * protoW * nm + x * nm + m;
         sum += maskCoeffs[m] * protoData[idx];
       }
       mask[y * protoW + x] = sigmoid(sum) > YOLO_MASK_THRESHOLD ? 1.0 : 0.0;
     }
   }
 
-  // Crop mask to detection bbox (pixels outside bbox → 0)
   return mask;
 };
 
-/**
- * Crop an instance mask to its detection bounding box.
- */
 const cropMaskToBbox = (mask, protoH, protoW, bbox) => {
   const [bx1, by1, bx2, by2] = bbox;
   const sx = Math.floor(bx1 * protoW);
@@ -304,34 +249,24 @@ const cropMaskToBbox = (mask, protoH, protoW, bbox) => {
   return mask;
 };
 
-/**
- * Infer proto shape [1, H, W, nm] from flat data length.
- */
 const inferProtoShape = (len) => {
-  const nm = YOLO_NUM_MASK_COEFFS; // 32
+  const nm = YOLO_NUM_MASK_COEFFS;
   const hw = Math.round(Math.sqrt(len / nm));
   if (hw * hw * nm === len) return [1, hw, hw, nm];
   return [1, 160, 160, 32];
 };
 
-/**
- * Infer detection tensor shape from flat data length.
- * End2end YOLO26-seg: [1, maxDet, 38] (maxDet typically 300)
- * Classic YOLOv8-seg: [1, 38, 8400]
- */
 const inferDetShape = (len) => {
-  const nc = PEST_CLASSES.length; // 2
-  const nm = YOLO_NUM_MASK_COEFFS; // 32
-  const classicFeat = 4 + nc + nm; // 38
+  const nc = PEST_CLASSES.length;
+  const nm = YOLO_NUM_MASK_COEFFS;
+  const classicFeat = 4 + nc + nm;
   const classicN = 8400;
 
-  // Classic: 38 * 8400 = 319200
   if (len === classicFeat * classicN) {
     return [1, classicFeat, classicN];
   }
 
-  // End2end: len = maxDet * features (features = 38 for 2 classes)
-  const e2eFeat = 4 + 1 + 1 + nm; // 38
+  const e2eFeat = 4 + 1 + 1 + nm;
   if (e2eFeat > 0 && len % e2eFeat === 0) {
     const maxDet = len / e2eFeat;
     if (maxDet > 0 && maxDet <= 1000) {
@@ -339,14 +274,9 @@ const inferDetShape = (len) => {
     }
   }
 
-  log(`[YOLO] Cannot infer det shape from len=${len}`);
   return [1, 38, 8400];
 };
 
-/**
- * Run YOLO segmentation on an image using ONNX Runtime.
- * Automatically identifies detection vs prototype tensors and infers shapes.
- */
 const runYoloDetection = async (imageUri) => {
   if (!yoloModel) throw new Error('YOLO model not loaded');
 
@@ -359,31 +289,19 @@ const runYoloDetection = async (imageUri) => {
   const decoded = jpeg.decode(Buffer.from(resized.base64, 'base64'), { useTArray: true });
   const pixels = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE;
 
-  // ONNX expects NCHW layout: [1, 3, H, W]
   const input = new Float32Array(3 * pixels);
   for (let i = 0, p = 0; i < decoded.data.length; i += 4, p++) {
-    input[0 * pixels + p] = decoded.data[i]     / 255.0; // R
-    input[1 * pixels + p] = decoded.data[i + 1] / 255.0; // G
-    input[2 * pixels + p] = decoded.data[i + 2] / 255.0; // B
+    input[0 * pixels + p] = decoded.data[i]     / 255.0;
+    input[1 * pixels + p] = decoded.data[i + 1] / 255.0;
+    input[2 * pixels + p] = decoded.data[i + 2] / 255.0;
   }
 
   const inputName = yoloModel.inputNames[0];
   const inputTensor = new Tensor('float32', input, [1, 3, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE]);
   const results = await yoloModel.run({ [inputName]: inputTensor });
 
-  // ========== DIAGNOSTIC LOGGING ==========
   const outputNames = yoloModel.outputNames;
-  log(`[YOLO] ${outputNames.length} output tensors: ${JSON.stringify(outputNames)}`);
-  for (const name of outputNames) {
-    const t = results[name];
-    const len = t.data?.length || 0;
-    const dims = t.dims;
-    const first20 = Array.from(t.data?.slice?.(0, 20) || []).map(v => +v.toFixed(4));
-    log(`[YOLO] "${name}": dims=${JSON.stringify(dims)}, len=${len}, first20=${JSON.stringify(first20)}`);
-  }
 
-  // ========== IDENTIFY PROTO vs DETECTION TENSORS ==========
-  // Proto tensor is much larger (e.g. 160*160*32 = 819200) than detections
   let protoName = null, detName = null;
   let maxLen = 0;
   for (const name of outputNames) {
@@ -393,7 +311,6 @@ const runYoloDetection = async (imageUri) => {
       protoName = name;
     }
   }
-  // Detection tensor is the largest among the rest
   let detMaxLen = 0;
   for (const name of outputNames) {
     if (name === protoName) continue;
@@ -403,16 +320,13 @@ const runYoloDetection = async (imageUri) => {
       detName = name;
     }
   }
-  // Safety: if only 1 output or proto is smaller than det, swap
   if (outputNames.length < 2) {
     throw new Error(`Model has only ${outputNames.length} output tensor(s), expected 2+`);
   }
   if (maxLen < 100000 && detMaxLen > maxLen) {
     [protoName, detName] = [detName, protoName];
   }
-  log(`[YOLO] det="${detName}" (len=${results[detName]?.data?.length}), proto="${protoName}" (len=${results[protoName]?.data?.length})`);
 
-  // ========== RESOLVE SHAPES ==========
   const protoTensor = results[protoName];
   const detTensor = results[detName];
 
@@ -424,68 +338,39 @@ const runYoloDetection = async (imageUri) => {
     ? Array.from(detTensor.dims)
     : inferDetShape(detTensor.data?.length || 0);
 
-  // Detect NCHW [1, nm, H, W] vs NHWC [1, H, W, nm] proto layout.
-  // ONNX typically outputs NCHW where dim[1] is small (nm=32) and dim[2]==dim[3] (160).
   const isProtoNCHW = protoShape[1] < protoShape[2];
   let protoH, protoW, nm;
   if (isProtoNCHW) {
-    // [1, nm, H, W]
     nm = protoShape[1];
     protoH = protoShape[2];
     protoW = protoShape[3];
   } else {
-    // [1, H, W, nm]
     protoH = protoShape[1];
     protoW = protoShape[2];
     nm = protoShape[3];
   }
   const protoData = protoTensor.data;
 
-  log(`[YOLO] Det shape: ${JSON.stringify(detShape)}, Proto shape: ${JSON.stringify(protoShape)}, protoNCHW=${isProtoNCHW}`);
-
-  // ========== PARSE DETECTIONS ==========
   const detections = parseYoloSegOutput(detTensor.data, detShape, [1, protoH, protoW, nm]);
-
-  if (detections.length > 0) {
-    const d = detections[0];
-    log(`[YOLO] Top det: class=${d.className}(${d.classIndex}), conf=${d.confidence.toFixed(4)}, bbox=[${d.bbox.map(v => v.toFixed(3))}]`);
-  }
-  log(`[YOLO] ${detections.length} detections total`);
 
   return { detections, protoData, protoH, protoW, nm, isProtoNCHW };
 };
 
-// ==========================================
-// TREE-TYPE FILTERING (processAiResults)
-// ==========================================
-/**
- * Filter and re-rank AI predictions based on the selected tree species.
- * If treeType is 'auto' (user doesn't know), predictions are returned as-is.
- * Otherwise, penalize pests that don't live on the selected tree.
- */
 const processAiResults = (predictions, treeType) => {
   const treeName = TREE_ID_TO_NAME[treeType] || null;
 
-  // Auto-detection: trust the model fully
   if (!treeName) {
-    log(`[Filter] Tree=auto → no filtering applied`);
     return predictions;
   }
-
-  log(`[Filter] Tree=${treeType} (${treeName}), ${predictions.length} detections to filter`);
 
   const filtered = predictions.map(prediction => {
     const allowedTrees = PEST_HOST_TREES[prediction.className];
     if (allowedTrees && allowedTrees.includes(treeName)) {
-      // Boost pest that is known to attack the selected tree
       const boosted = Math.min(prediction.confidence * 1.25, 1.0);
-      log(`[Filter]  ✓ ${prediction.className}: ${(prediction.confidence*100).toFixed(1)}% → ${(boosted*100).toFixed(1)}% (BOOST ×1.25, hosts: ${allowedTrees.join(', ')})`);
       return { ...prediction, confidence: boosted };
     }
     if (allowedTrees && !allowedTrees.includes(treeName)) {
-      // Strongly penalize pest that doesn't live on the selected tree
       const penalized = prediction.confidence * 0.05;
-      log(`[Filter]  ✗ ${prediction.className}: ${(prediction.confidence*100).toFixed(1)}% → ${(penalized*100).toFixed(1)}% (PENALTY ×0.05, hosts: ${allowedTrees.join(', ')})`);
       return { ...prediction, confidence: penalized };
     }
     return prediction;
@@ -494,12 +379,6 @@ const processAiResults = (predictions, treeType) => {
   return filtered.sort((a, b) => b.confidence - a.confidence);
 };
 
-// ==========================================
-// INSTANCE MASK → JPEG OVERLAY
-// ==========================================
-/**
- * Encode a YOLO instance mask (protoH×protoW) as a colored JPEG overlay URI.
- */
 const instanceMaskToUri = (instMask, protoH, protoW, color = { r: 34, g: 197, b: 94 }) => {
   const jpegPixels = new Uint8Array(protoH * protoW * 4);
   for (let i = 0; i < protoH * protoW; i++) {
@@ -516,25 +395,16 @@ const instanceMaskToUri = (instMask, protoH, protoW, color = { r: 34, g: 197, b:
   return `data:image/jpeg;base64,${Buffer.from(encoded.data).toString('base64')}`;
 };
 
-// ==========================================
-// TTA (Test-Time Augmentation)
-// ==========================================
 const TTA_ROTATIONS = [0, 90, 180, 270];
+const TTA_CONF_HIGH = 0.50;
+const TTA_CONF_LOW  = 0.20;
 
-/**
- * Rotate image using expo-image-manipulator.
- * Positive angle = CCW (expo convention).
- */
 const rotateImage = async (imageUri, angle) => {
   if (angle === 0) return imageUri;
   const result = await manipulateAsync(imageUri, [{ rotate: angle }], { format: SaveFormat.JPEG });
   return result.uri;
 };
 
-/**
- * Reverse a normalized bbox [x1,y1,x2,y2] from CCW-rotated space back to original.
- * Assumes square input (YOLO 800×800).
- */
 const rotateBboxBack = (bbox, angle) => {
   if (angle === 0) return bbox;
   const [rx1, ry1, rx2, ry2] = bbox;
@@ -546,9 +416,6 @@ const rotateBboxBack = (bbox, angle) => {
   }
 };
 
-/**
- * Reverse a flat instance mask (h×w) from CCW-rotated space back to original orientation.
- */
 const rotateMaskBack = (mask, h, w, angle) => {
   if (angle === 0) return mask;
   const out = new Float32Array(h * w);
@@ -566,89 +433,6 @@ const rotateMaskBack = (mask, h, w, angle) => {
   return out;
 };
 
-// ==========================================
-// MAIN API — detectPests (automatic YOLOv8-seg detection)
-// ==========================================
-/**
- * Full auto-detection + segmentation on the image.
- * The model finds pest damage areas itself and generates masks.
- * Returns result object ready for AnalysisScreen.
- */
-export const detectPests = async (imageUri, treeType = 'auto') => {
-  if (!yoloModel) throw new Error('YOLO model not loaded');
-
-  const { detections: rawDetections, protoData, protoH, protoW, nm, isProtoNCHW } = await runYoloDetection(imageUri);
-  const filtered = processAiResults(rawDetections, treeType);
-
-  if (filtered.length === 0) {
-    return {
-      type: 'detection',
-      confidence: 1.0,
-      label: 'noPestFound',
-      severity: 'info',
-      recommendation: 'noPestFoundDesc',
-      treeContext: treeType,
-      maskUri: null,
-      detections: [],
-    };
-  }
-
-  // Generate instance masks for all detections (limit to top 10)
-  // Convert Float32Array maskCoeffs → plain Array to avoid React Navigation serialization warnings
-  const withMasks = filtered.slice(0, 10).map(det => {
-    try {
-      const instMask = generateInstanceMask(det.maskCoeffs, protoData, protoH, protoW, nm, isProtoNCHW);
-      cropMaskToBbox(instMask, protoH, protoW, det.bbox);
-      const { maskCoeffs, ...rest } = det;
-      return { ...rest, maskUri: instanceMaskToUri(instMask, protoH, protoW) };
-    } catch {
-      const { maskCoeffs, ...rest } = det;
-      return { ...rest, maskUri: null };
-    }
-  });
-
-  const best = withMasks[0];
-  const bestLabel = PEST_LABELS[best.className] || best.className;
-  return {
-    type: 'detection',
-    confidence: best.confidence,
-    label: bestLabel,
-    severity: best.confidence > 0.60 ? 'critical' : 'warning',
-    recommendation: `Detected ${withMasks.length}x bark damage. Strongest: ${bestLabel} (${Math.round(best.confidence * 100)}%).`,
-    treeContext: treeType,
-    maskUri: best.maskUri,
-    detections: withMasks,
-  };
-};
-
-// ==========================================
-// TTA-ENHANCED DETECTION
-// ==========================================
-const TTA_CONF_HIGH = 0.50;   // Above this → accept immediately, skip TTA
-const TTA_CONF_LOW  = 0.20;   // Between LOW and HIGH → try TTA for better result
-
-/**
- * Print a formatted summary table of all TTA rotation attempts.
- */
-const printTtaSummary = (ttaLog) => {
-  log('[TTA] ═══════════════════════════════════════════');
-  log('[TTA]  ROTATION SUMMARY');
-  log('[TTA] ───────────────────────────────────────────');
-  for (const entry of ttaLog) {
-    const conf = entry.bestConf > 0 ? (entry.bestConf * 100).toFixed(1) + '%' : '  — ';
-    const icon = entry.status === 'accepted' ? '✓'
-      : entry.status === 'fallback' || entry.status === 'fallback-updated' ? '~'
-      : entry.status === 'empty' ? '✗'
-      : '·';
-    log(`[TTA]  ${icon}  ${String(entry.angle).padStart(3)}°  │  dets: ${entry.detections}  │  conf: ${conf.padStart(6)}  │  ${entry.status}`);
-  }
-  log('[TTA] ═══════════════════════════════════════════');
-};
-
-/**
- * Build a final result object from filtered detections + proto data,
- * applying bbox/mask back-rotation when angle ≠ 0.
- */
 const buildTtaResult = (filtered, protoData, protoH, protoW, nm, isProtoNCHW, angle, treeType) => {
   const withMasks = filtered.slice(0, 10).map(det => {
     try {
@@ -682,78 +466,36 @@ const buildTtaResult = (filtered, protoData, protoH, protoW, nm, isProtoNCHW, an
   };
 };
 
-/**
- * Test-Time Augmentation with smart early-exit:
- *
- *  1. Run inference at 0°.
- *     • conf ≥ 0.50  → return immediately (high-confidence hit).
- *     • 0.20 ≤ conf < 0.50  → save as fallback, try 90°/180°/270°
- *       for a result above 0.50. If none found → return the 0° fallback.
- *     • no detection → try remaining rotations; first hit wins.
- *
- *  2. If all 4 rotations produce nothing → "no pest found".
- */
 export const detectWithTTA = async (imageUri, treeType = 'auto') => {
   if (!yoloModel) throw new Error('YOLO model not loaded');
 
-  let fallbackResult = null; // stashed low-confidence result
-  const ttaLog = [];         // rotation attempt log
+  let fallbackResult = null;
 
   for (const angle of TTA_ROTATIONS) {
-    log(`[TTA] Trying rotation ${angle}°...`);
     const rotatedUri = await rotateImage(imageUri, angle);
     const { detections: rawDets, protoData, protoH, protoW, nm, isProtoNCHW } =
       await runYoloDetection(rotatedUri);
     const filtered = processAiResults(rawDets, treeType);
 
-    if (filtered.length === 0) {
-      ttaLog.push({ angle, detections: 0, bestConf: 0, status: 'empty' });
-      log(`[TTA] No detections at ${angle}°, trying next...`);
-      continue;
-    }
+    if (filtered.length === 0) continue;
 
     const bestConf = filtered[0].confidence;
-    log(`[TTA] Found ${filtered.length} detection(s) at ${angle}°, best conf=${bestConf.toFixed(3)}`);
 
-    // High-confidence → accept immediately
     if (bestConf >= TTA_CONF_HIGH) {
-      ttaLog.push({ angle, detections: filtered.length, bestConf, status: 'accepted' });
-      log(`[TTA] High confidence (${bestConf.toFixed(3)} ≥ ${TTA_CONF_HIGH}) at ${angle}° → accepting`);
-      printTtaSummary(ttaLog);
-      const result = buildTtaResult(filtered, protoData, protoH, protoW, nm, isProtoNCHW, angle, treeType);
-      result.ttaLog = ttaLog;
-      return result;
+      return buildTtaResult(filtered, protoData, protoH, protoW, nm, isProtoNCHW, angle, treeType);
     }
 
-    // Low-confidence → stash as fallback (keep best across rotations)
     if (bestConf >= TTA_CONF_LOW) {
       if (!fallbackResult || bestConf > fallbackResult.confidence) {
-        const status = !fallbackResult ? 'fallback' : 'fallback-updated';
-        ttaLog.push({ angle, detections: filtered.length, bestConf, status });
-        log(`[TTA] Low confidence (${bestConf.toFixed(3)}) at ${angle}° → ${status}`);
         fallbackResult = buildTtaResult(filtered, protoData, protoH, protoW, nm, isProtoNCHW, angle, treeType);
-      } else {
-        ttaLog.push({ angle, detections: filtered.length, bestConf, status: 'skipped-worse' });
-        log(`[TTA] Lower conf (${bestConf.toFixed(3)} ≤ ${fallbackResult.confidence.toFixed(3)}) at ${angle}° → skipped`);
       }
-      continue;
     }
-
-    // Below TTA_CONF_LOW
-    ttaLog.push({ angle, detections: filtered.length, bestConf, status: 'below-threshold' });
   }
 
-  // Summary
-  printTtaSummary(ttaLog);
-
-  // Return stashed fallback if we have one
   if (fallbackResult) {
-    log(`[TTA] No high-conf hit; returning fallback (conf=${fallbackResult.confidence.toFixed(3)}, rot=${fallbackResult.rotationUsed}°)`);
-    fallbackResult.ttaLog = ttaLog;
     return fallbackResult;
   }
 
-  log('[TTA] No detections after all 4 rotations.');
   return {
     type: 'detection',
     confidence: 1.0,
@@ -764,17 +506,5 @@ export const detectWithTTA = async (imageUri, treeType = 'auto') => {
     maskUri: null,
     detections: [],
     rotationUsed: null,
-    ttaLog,
   };
-};
-
-// Legacy wrapper — now uses TTA-enhanced detection
-export const analyzeImage = async (imageUri, treeType) => {
-  try {
-    await initModel();
-    return await detectWithTTA(imageUri, treeType);
-  } catch (error) {
-    console.error('Critical error in AI pipeline:', error);
-    return null;
-  }
 };

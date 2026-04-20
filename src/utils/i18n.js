@@ -99,8 +99,8 @@ const translations = {
     treeLarchLatin: 'Larix decidua',
     treeFir: 'Jedle bělokorá',
     treeFirLatin: 'Abies alba',
-    treeUnknown: 'Automaticky',
-    treeUnknownLatin: 'Automatická detekce',
+    treeUnknown: 'Neurčeno',
+    treeUnknownLatin: 'Neurčeno',
     // Analysis
     unknownAgent: 'Neznámý původce',
     // Pipeline phases
@@ -137,9 +137,6 @@ const translations = {
     recordCount: 'záznamů',
     today: 'Dnes',
     yesterday: 'Včera',
-    treePestSpruce: 'Napadá: Lýkožrout lesklý (P. chalcographus)',
-    treePestLarch: 'Napadá: Lýkožrout modřínový (I. cembrae), Lýkožrout lesklý (P. chalcographus)',
-    treePestPine: 'Napadá: Lýkožrout lesklý (P. chalcographus)',
     segmentationMask: 'Segmentační maska',
   },
   en: {
@@ -241,8 +238,8 @@ const translations = {
     treeLarchLatin: 'Larix decidua',
     treeFir: 'Silver Fir',
     treeFirLatin: 'Abies alba',
-    treeUnknown: 'Auto-detect',
-    treeUnknownLatin: 'Automatic detection',
+    treeUnknown: 'Unspecified',
+    treeUnknownLatin: 'Unspecified',
     unknownAgent: 'Unknown agent',
     // Pipeline phases
     yoloDetection: 'Region detection (YOLO)',
@@ -278,9 +275,6 @@ const translations = {
     recordCount: 'records',
     today: 'Today',
     yesterday: 'Yesterday',
-    treePestSpruce: 'At risk: P. chalcographus (Bark beetle)',
-    treePestLarch: 'At risk: I. cembrae, P. chalcographus',
-    treePestPine: 'At risk: P. chalcographus (Bark beetle)',
     segmentationMask: 'Segmentation mask',
   },
   es: {
@@ -382,8 +376,8 @@ const translations = {
     treeLarchLatin: 'Larix decidua',
     treeFir: 'Abeto blanco',
     treeFirLatin: 'Abies alba',
-    treeUnknown: 'Automático',
-    treeUnknownLatin: 'Detección automática',
+    treeUnknown: 'No especificado',
+    treeUnknownLatin: 'No especificado',
     unknownAgent: 'Agente desconocido',
     // Fases del pipeline
     yoloDetection: 'Detección de región (YOLO)',
@@ -419,9 +413,6 @@ const translations = {
     recordCount: 'registros',
     today: 'Hoy',
     yesterday: 'Ayer',
-    treePestSpruce: 'En riesgo: P. chalcographus',
-    treePestLarch: 'En riesgo: I. cembrae, P. chalcographus',
-    treePestPine: 'En riesgo: P. chalcographus',
     segmentationMask: 'Máscara de segmentación',
   },
 };

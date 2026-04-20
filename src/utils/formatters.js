@@ -81,7 +81,7 @@ export const groupByDay = (items, lang) => {
 export const getTreeDisplayLabel = (tree, treeType, lang) => {
     if (!tree) return treeType || t(lang, 'treeUnknown');
     if (tree.id === 'auto') return t(lang, tree.labelKey);
-    return `${t(lang, tree.labelKey)} (${t(lang, tree.latinKey)})`;
+    return t(lang, tree.labelKey);
 };
 
 /**
