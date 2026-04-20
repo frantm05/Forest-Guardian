@@ -5,7 +5,7 @@ import torch
 import os
 
 from roboflow import Roboflow
-rf = Roboflow(api_key="6G82blb1sshjVBAgYvrh")
+rf = Roboflow(api_key="APIKEY")
 project = rf.workspace("matjs-workspace-ddjlh").project("pozerky")
 version = project.version(11)
 dataset = version.download("yolo26")
