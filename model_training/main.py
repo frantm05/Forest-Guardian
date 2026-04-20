@@ -13,7 +13,7 @@ dataset = version.download("yolo26")
 
 from ultralytics import YOLO
 
-model = YOLO("runs/segment/train_optimized/weights/best.pt")
+model = YOLO("runs/segment/train2/weights/best.pt")
 
 results = model.train(
     data=f"{dataset.location}/data.yaml",
