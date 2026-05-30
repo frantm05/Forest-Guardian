@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node --version)",
+      "PowerShell(java -version 2>&1)",
+      "PowerShell($env:ANDROID_HOME)"
+    ]
+  }
+}

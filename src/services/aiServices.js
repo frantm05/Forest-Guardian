@@ -14,11 +14,12 @@ export const TREE_TYPES = [
   { id: 'pine', labelKey: 'treePine', latinKey: 'treePineLatin' },
 ];
 
-const PEST_CLASSES = ['Ips cembrae', 'Pityogenes chalcographus'];
+const PEST_CLASSES = ['Ips cembrae', 'Pityogenes chalcographus', 'Ips typographus'];
 
 const PEST_LABELS = {
   'Ips cembrae': 'Lýkožrout modřínový (Ips cembrae)',
   'Pityogenes chalcographus': 'Lýkožrout lesklý (Pityogenes chalcographus)',
+  'Ips typographus': 'Lýkožrout smrkový (Ips typographus)',
 };
 
 const YOLO_INPUT_SIZE = 640;
@@ -30,6 +31,7 @@ const YOLO_MASK_THRESHOLD = 0.5;
 const PEST_HOST_TREES = {
   'Ips cembrae': ['Modřín'],
   'Pityogenes chalcographus': ['Smrk', 'Borovice'],
+  'Ips typographus': ['Smrk'],
 };
 
 const TREE_ID_TO_NAME = {
